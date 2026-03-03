@@ -1,0 +1,144 @@
+openapi: 3.1.0
+info:
+  title: AgentKit x402 Merchant Gateway Contract
+  version: 0.1.0
+  description: |
+    Agent(付款方)调用商户包装接口的最小 OpenAPI 合同。
+servers:
+  - url: https://merchant.example.com
+paths:
+  /x402/create-order:
+    post:
+      summary: 创建支付订单
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+  /x402/order-status/{paymentId}:
+    get:
+      summary: 查询订单状态
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+  /x402/submit-signature:
+    post:
+      summary: 提交付款方签名
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitSignatureRequest'
+      responses:
+        '200':
+          description: 提交成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitSignatureResponse'
+  /x402/cancel-order:
+    post:
+      summary: 取消订单
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderRequest'
+      responses:
+        '200':
+          description: 取消成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelOrderResponse'
+components:
+  schemas:
+    CreateOrderRequest:
+      type: object
+      required: [to, asset, amount]
+      properties:
+        to: { type: string }
+        asset: { type: string, description: token symbol, example: USDC }
+        amount: { type: string, description: amount in atomic units }
+        fromAddress: { type: string }
+        idempotencyKey: { type: string }
+        callbackCalldata: { type: string }
+    CreateOrderResponse:
+      type: object
+      required: [paymentId, status]
+      properties:
+        paymentId: { type: string }
+        status: { type: string, enum: [created] }
+        calldataSignRequest:
+          $ref: '#/components/schemas/CalldataSignRequest'
+        raw: { type: object, additionalProperties: true }
+    OrderStatusResponse:
+      type: object
+      required: [paymentId, status]
+      properties:
+        paymentId: { type: string }
+        status:
+          type: string
+          enum: [created, authorized, settled, failed, expired]
+        raw: { type: object, additionalProperties: true }
+    CalldataSignRequest:
+      type: object
+      required: [domain, types, primaryType, message]
+      properties:
+        domain: { type: object, additionalProperties: true }
+        types:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              properties:
+                name: { type: string }
+                type: { type: string }
+        primaryType: { type: string }
+        message: { type: object, additionalProperties: true }
+    SubmitSignatureRequest:
+      type: object
+      required: [paymentId, signature]
+      properties:
+        paymentId: { type: string }
+        signature: { type: string, description: 0x-prefixed EIP-712 signature }
+    SubmitSignatureResponse:
+      type: object
+      required: [paymentId, status]
+      properties:
+        paymentId: { type: string }
+        status: { type: string, enum: [authorized, failed] }
+        raw: { type: object, additionalProperties: true }
+    CancelOrderRequest:
+      type: object
+      required: [paymentId]
+      properties:
+        paymentId: { type: string }
+    CancelOrderResponse:
+      type: object
+      required: [paymentId, status]
+      properties:
+        paymentId: { type: string }
+        status: { type: string, enum: [cancelled, failed] }
+        raw: { type: object, additionalProperties: true }
