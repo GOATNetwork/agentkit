@@ -40,8 +40,20 @@ const ORDER_STATUS_MAP: Record<string, X402OrderStatusResult['status']> = {
   CANCELLED: 'failed',
 };
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 export class GoatAdapter {
-  constructor(private readonly network: GoatNet) {}
+  private readonly timeoutMs: number;
+
+  constructor(private readonly network: GoatNet, options?: { timeoutMs?: number }) {
+    this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+
+  private fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
 
   private get rpcUrl(): string {
     return goatNetworks[this.network].rpcUrl;
@@ -63,8 +75,17 @@ export class GoatAdapter {
     return Boolean(this.x402ApiKey && this.x402ApiSecret);
   }
 
+  private requireX402Credential(method: string): void {
+    if (!this.hasX402Credential()) {
+      throw new Error(
+        `${method}: missing GOAT_X402_API_KEY / GOAT_X402_API_SECRET. ` +
+        `Set these environment variables or provide credentials explicitly.`
+      );
+    }
+  }
+
   async ping(): Promise<{ chainIdHex: string; rpcUrl: string }> {
-    const resp = await fetch(this.rpcUrl, {
+    const resp = await this.fetchWithTimeout(this.rpcUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
@@ -111,7 +132,7 @@ export class GoatAdapter {
   private async x402Request<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<T> {
     const headers = this.signX402Request(body ?? {});
 
-    const resp = await fetch(`${this.x402BaseUrl}${path}`, {
+    const resp = await this.fetchWithTimeout(`${this.x402BaseUrl}${path}`, {
       method,
       headers: {
         'content-type': 'application/json',
@@ -138,12 +159,7 @@ export class GoatAdapter {
   }
 
   async x402CreatePayment(params: X402CreatePaymentParams): Promise<X402CreatePaymentResult> {
-    if (!this.hasX402Credential()) {
-      return {
-        paymentId: `x402_${params.asset}_${Date.now()}`,
-        status: 'created',
-      };
-    }
+    this.requireX402Credential('x402CreatePayment');
 
     const chainId = goatNetworks[this.network].chainId;
     const body = {
@@ -168,9 +184,7 @@ export class GoatAdapter {
     paymentId: string,
     signature?: string
   ): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }> {
-    if (!this.hasX402Credential()) {
-      return { paymentId, status: 'authorized' };
-    }
+    this.requireX402Credential('x402AuthorizePayment');
 
     if (!signature) {
       return { paymentId, status: 'failed', raw: { message: 'missing signature for calldata-signature' } };
@@ -181,9 +195,7 @@ export class GoatAdapter {
   }
 
   async x402GetPaymentStatus(paymentId: string): Promise<X402OrderStatusResult> {
-    if (!this.hasX402Credential()) {
-      return { paymentId, status: 'created' };
-    }
+    this.requireX402Credential('x402GetPaymentStatus');
 
     const raw = await this.x402Request<any>('GET', `/api/v1/orders/${paymentId}`);
     const mapped = ORDER_STATUS_MAP[String(raw?.status)] ?? 'created';

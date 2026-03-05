@@ -45,16 +45,38 @@ describe('validateAgainstJsonSchema', () => {
 
   it('returns error for missing required field', () => {
     const errors = validateAgainstJsonSchema(schema, { name: 'Alice' });
-    expect(errors.some((e) => e.includes('Missing required field: role'))).toBe(true);
+    expect(errors.some((e) => e.includes('role') && e.includes('missing required'))).toBe(true);
   });
 
   it('returns error for wrong type', () => {
     const errors = validateAgainstJsonSchema(schema, { name: 'Alice', role: 'admin', count: 'abc' });
-    expect(errors.some((e) => e.includes('Invalid type for count'))).toBe(true);
+    expect(errors.some((e) => e.includes('count') && e.includes('expected type'))).toBe(true);
   });
 
   it('returns error for invalid enum value', () => {
     const errors = validateAgainstJsonSchema(schema, { name: 'Alice', role: 'superadmin' });
-    expect(errors.some((e) => e.includes('Invalid value for role'))).toBe(true);
+    expect(errors.some((e) => e.includes('role') && e.includes('not in enum'))).toBe(true);
+  });
+
+  it('rejects null for nested object type', () => {
+    const nestedSchema = {
+      type: 'object',
+      properties: {
+        meta: { type: 'object', properties: { key: { type: 'string' } } },
+      },
+    };
+    const errors = validateAgainstJsonSchema(nestedSchema, { meta: null });
+    expect(errors.some((e) => e.includes('meta') && e.includes('expected type object'))).toBe(true);
+  });
+
+  it('rejects array for nested object type', () => {
+    const nestedSchema = {
+      type: 'object',
+      properties: {
+        meta: { type: 'object', properties: { key: { type: 'string' } } },
+      },
+    };
+    const errors = validateAgainstJsonSchema(nestedSchema, { meta: [1, 2] });
+    expect(errors.some((e) => e.includes('meta') && e.includes('expected type object'))).toBe(true);
   });
 });

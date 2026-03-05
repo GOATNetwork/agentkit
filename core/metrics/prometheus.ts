@@ -23,17 +23,16 @@ export function renderPrometheus(metrics: InMemoryRuntimeMetrics): string {
   lines.push('# TYPE agentkit_runtime_histogram_count gauge');
   lines.push('# TYPE agentkit_runtime_histogram_avg gauge');
   lines.push('# TYPE agentkit_runtime_histogram_max gauge');
-  for (const [seriesKey, arr] of metrics.histograms.entries()) {
-    if (!arr.length) continue;
+  for (const [seriesKey, summary] of metrics.histograms.entries()) {
+    if (summary.count === 0) continue;
     const { name, tags } = parseSeriesKey(seriesKey);
     const labels = { metric: name, ...tags };
     const promLabels = labelsToProm(labels);
-    const sum = arr.reduce((a, b) => a + b, 0);
-    const avg = sum / arr.length;
+    const avg = summary.sum / summary.count;
 
-    lines.push(`agentkit_runtime_histogram_count${promLabels} ${arr.length}`);
+    lines.push(`agentkit_runtime_histogram_count${promLabels} ${summary.count}`);
     lines.push(`agentkit_runtime_histogram_avg${promLabels} ${avg}`);
-    lines.push(`agentkit_runtime_histogram_max${promLabels} ${Math.max(...arr)}`);
+    lines.push(`agentkit_runtime_histogram_max${promLabels} ${summary.max}`);
   }
 
   return lines.join('\n') + '\n';

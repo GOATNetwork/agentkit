@@ -1,6 +1,12 @@
 import type { CalldataSignRequest, PayerWalletAdapter, TransferTokenInput, TransferTokenResult } from './types';
 
 export class NoopPayerWalletAdapter implements PayerWalletAdapter {
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('NoopPayerWalletAdapter must not be used in production. Provide a real PayerWalletAdapter implementation.');
+    }
+  }
+
   async normalizeAuthorization(input: string): Promise<string> {
     return input.startsWith('sig:') ? input.slice(4) : input;
   }

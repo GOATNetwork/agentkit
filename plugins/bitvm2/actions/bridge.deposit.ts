@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import { GoatAdapter } from '../../../networks/goat/adapter';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface BridgeDepositInput {
   fromBtcAddress: string;
@@ -15,7 +16,7 @@ export interface BridgeDepositOutput {
 
 const inputSchema = z.object({
   fromBtcAddress: z.string().min(10),
-  toGoatAddress: z.string().min(5),
+  toGoatAddress: evmAddress,
   amountSats: z.string().regex(/^\d+$/),
 });
 

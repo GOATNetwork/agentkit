@@ -21,6 +21,8 @@ export interface MerchantGatewayRoutes {
 export interface HttpMerchantGatewayAdapterOptions {
   headers?: Record<string, string>;
   routes?: Partial<MerchantGatewayRoutes>;
+  /** HTTP request timeout in milliseconds. Default: 30000 (30s). */
+  timeoutMs?: number;
 }
 
 const DEFAULT_ROUTES: MerchantGatewayRoutes = {
@@ -56,14 +58,22 @@ function assertOk(resp: Response, data: any, message: string): void {
 export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
   private readonly headers: Record<string, string>;
   private readonly routes: MerchantGatewayRoutes;
+  private readonly timeoutMs: number;
 
   constructor(private readonly baseUrl: string, options: HttpMerchantGatewayAdapterOptions = {}) {
     this.headers = options.headers ?? {};
     this.routes = { ...DEFAULT_ROUTES, ...(options.routes ?? {}) };
+    this.timeoutMs = options.timeoutMs ?? 30_000;
+  }
+
+  private fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
   }
 
   async createPaymentIntent(input: CreatePaymentIntentInput): Promise<CreatePaymentIntentResult> {
-    const resp = await fetch(joinUrl(this.baseUrl, this.routes.createOrderPath), {
+    const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, this.routes.createOrderPath), {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...this.headers },
       body: JSON.stringify(input),
@@ -83,7 +93,7 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
 
   async getPaymentStatus(paymentId: string) {
     const path = this.routes.orderStatusPath.replace(':paymentId', encodeURIComponent(paymentId));
-    const resp = await fetch(joinUrl(this.baseUrl, path), {
+    const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, path), {
       headers: { ...this.headers },
     });
     const data = await parseBodySafe(resp);
@@ -98,7 +108,7 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
   }
 
   async submitPaymentAuthorization(paymentId: string, signature: string) {
-    const resp = await fetch(joinUrl(this.baseUrl, this.routes.submitSignaturePath), {
+    const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, this.routes.submitSignaturePath), {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...this.headers },
       body: JSON.stringify({ paymentId, signature }),
@@ -114,7 +124,7 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
   }
 
   async cancelPayment(paymentId: string) {
-    const resp = await fetch(joinUrl(this.baseUrl, this.routes.cancelOrderPath), {
+    const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, this.routes.cancelOrderPath), {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...this.headers },
       body: JSON.stringify({ paymentId }),

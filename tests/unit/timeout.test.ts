@@ -37,6 +37,7 @@ describe('Timeout execution', () => {
     runtime = new ExecutionRuntime(makePolicy(), {
       maxRetries: 0,
       retryDelayMs: 10,
+      noRetryHighRiskWrites: false,
       logger: silentLogger,
       metrics,
     });
@@ -73,6 +74,7 @@ describe('Timeout execution', () => {
       maxRetries: 0,
       retryDelayMs: 10,
       defaultTimeoutMs: 50,
+      noRetryHighRiskWrites: false,
       logger: silentLogger,
       metrics,
     });
@@ -94,6 +96,7 @@ describe('Timeout execution', () => {
       maxRetries: 0,
       retryDelayMs: 10,
       defaultTimeoutMs: 50,
+      noRetryHighRiskWrites: false,
       logger: silentLogger,
       metrics,
     });

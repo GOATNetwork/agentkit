@@ -30,12 +30,13 @@ describe('InMemoryRuntimeMetrics', () => {
     expect(m.counters.get(key)).toBe(4);
   });
 
-  it('observes histogram values', () => {
+  it('observes histogram values as aggregated summary', () => {
     const m = new InMemoryRuntimeMetrics();
     m.observe('latency', 100, { action: 'test' });
     m.observe('latency', 200, { action: 'test' });
     const key = buildSeriesKey('latency', { action: 'test' });
-    expect(m.histograms.get(key)).toEqual([100, 200]);
+    const summary = m.histograms.get(key);
+    expect(summary).toEqual({ count: 2, sum: 300, min: 100, max: 200 });
   });
 });
 

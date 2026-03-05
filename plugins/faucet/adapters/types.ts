@@ -11,6 +11,12 @@ export interface FaucetAdapter {
 }
 
 export class NoopFaucetAdapter implements FaucetAdapter {
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('NoopFaucetAdapter must not be used in production. Provide a real FaucetAdapter implementation.');
+    }
+  }
+
   async getChains() {
     return { chains: ['goat-testnet'] };
   }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletReadAdapter } from '../adapters/types';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface WalletBalanceInput {
   address: string;
@@ -14,8 +15,8 @@ export interface WalletBalanceOutput {
 }
 
 const inputSchema = z.object({
-  address: z.string().min(4),
-  tokenAddress: z.string().min(4).optional(),
+  address: evmAddress,
+  tokenAddress: evmAddress.optional(),
 });
 
 export function walletBalanceAction(adapter: WalletReadAdapter): ActionDefinition<WalletBalanceInput, WalletBalanceOutput> {

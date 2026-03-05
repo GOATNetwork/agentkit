@@ -29,9 +29,16 @@ export class NoopRuntimeMetrics implements RuntimeMetrics {
   observe(_name: string, _value: number, _tags?: Record<string, string>): void {}
 }
 
+export interface HistogramSummary {
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+}
+
 export class InMemoryRuntimeMetrics implements RuntimeMetrics {
   counters = new Map<string, number>();
-  histograms = new Map<string, number[]>();
+  histograms = new Map<string, HistogramSummary>();
 
   incCounter(name: string, value = 1, tags?: Record<string, string>): void {
     const key = buildSeriesKey(name, tags);
@@ -40,8 +47,14 @@ export class InMemoryRuntimeMetrics implements RuntimeMetrics {
 
   observe(name: string, value: number, tags?: Record<string, string>): void {
     const key = buildSeriesKey(name, tags);
-    const arr = this.histograms.get(key) ?? [];
-    arr.push(value);
-    this.histograms.set(key, arr);
+    const existing = this.histograms.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.sum += value;
+      if (value < existing.min) existing.min = value;
+      if (value > existing.max) existing.max = value;
+    } else {
+      this.histograms.set(key, { count: 1, sum: value, min: value, max: value });
+    }
   }
 }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { CalldataSignRequest, MerchantGatewayAdapter } from '../adapters/types';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface CreatePaymentInput {
   to: string;
@@ -19,10 +20,10 @@ export interface CreatePaymentOutput {
 }
 
 const inputSchema = z.object({
-  to: z.string().min(3),
+  to: evmAddress,
   asset: z.string().min(2),
   amount: z.string().min(1),
-  fromAddress: z.string().min(3).optional(),
+  fromAddress: evmAddress.optional(),
   expiresAt: z.number().optional(),
   idempotencyKey: z.string().optional(),
   callbackCalldata: z.string().optional(),

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface Erc721MintInput {
   contractAddress: string;
@@ -13,8 +14,8 @@ export interface Erc721MintOutput {
 }
 
 const inputSchema = z.object({
-  contractAddress: z.string().min(4),
-  to: z.string().min(4),
+  contractAddress: evmAddress,
+  to: evmAddress,
   tokenId: z.string().min(1),
 });
 

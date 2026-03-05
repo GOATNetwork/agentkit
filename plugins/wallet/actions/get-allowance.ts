@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface GetAllowanceInput {
   tokenAddress: string;
@@ -16,9 +17,9 @@ export interface GetAllowanceOutput {
 }
 
 const inputSchema = z.object({
-  tokenAddress: z.string().min(4),
-  owner: z.string().min(4),
-  spender: z.string().min(4),
+  tokenAddress: evmAddress,
+  owner: evmAddress,
+  spender: evmAddress,
 });
 
 const ERC20_ALLOWANCE_ABI = ['function allowance(address owner, address spender) view returns (uint256)'];

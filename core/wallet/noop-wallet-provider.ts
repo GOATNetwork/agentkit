@@ -4,6 +4,9 @@ export class NoopWalletProvider implements WalletProvider {
   private readonly address: string;
 
   constructor(address = '0x0000000000000000000000000000000000000001') {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('NoopWalletProvider must not be used in production. Provide a real WalletProvider implementation.');
+    }
     this.address = address;
   }
 

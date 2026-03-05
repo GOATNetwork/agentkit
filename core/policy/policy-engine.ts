@@ -35,6 +35,10 @@ export class PolicyEngine {
       return { allowed: false, reason: `Network not allowed: ${context.network}` };
     }
 
+    if (action.networks.length > 0 && !action.networks.includes(context.network)) {
+      return { allowed: false, reason: `Action ${action.name} does not support network: ${context.network}` };
+    }
+
     if (!this.config.writeEnabled && action.riskLevel !== 'read') {
       return { allowed: false, reason: 'Write actions are disabled by policy' };
     }

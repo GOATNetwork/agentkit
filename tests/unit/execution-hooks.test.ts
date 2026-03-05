@@ -16,6 +16,7 @@ function makeRuntime(hooks: ExecutionHooks, policyOverrides?: Partial<{ allowedN
   return new ExecutionRuntime(policy, {
     maxRetries: 1,
     retryDelayMs: 1,
+    noRetryHighRiskWrites: false,
     logger: noopLogger,
     metrics: new NoopRuntimeMetrics(),
     hooks,

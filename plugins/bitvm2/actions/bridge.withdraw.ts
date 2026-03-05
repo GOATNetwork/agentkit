@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import { GoatAdapter } from '../../../networks/goat/adapter';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface BridgeWithdrawInput {
   fromGoatAddress: string;
@@ -14,7 +15,7 @@ export interface BridgeWithdrawOutput {
 }
 
 const inputSchema = z.object({
-  fromGoatAddress: z.string().min(5),
+  fromGoatAddress: evmAddress,
   toBtcAddress: z.string().min(10),
   amountSats: z.string().regex(/^\d+$/),
 });

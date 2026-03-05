@@ -8,6 +8,13 @@ import { InMemoryIdempotencyStore, type IdempotencyStore } from './idempotency/s
 import { NoopRuntimeMetrics, type RuntimeMetrics } from '../metrics/metrics';
 import type { ExecutionHooks } from './execution-hooks';
 
+/** Error codes that should NOT be retried — they will fail identically on retry. */
+const NON_RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set([
+  ErrorCodes.INVALID_INPUT,
+  ErrorCodes.POLICY_BLOCKED,
+  ErrorCodes.ACTION_NOT_FOUND,
+]);
+
 export interface ExecutionOptions {
   confirmed?: boolean;
   idempotencyKey?: string;
@@ -18,6 +25,10 @@ export interface ExecutionConfig {
   maxRetries: number;
   retryDelayMs: number;
   defaultTimeoutMs?: number;
+  /** If true, high-risk write actions (riskLevel !== 'read') skip automatic retries. Default: true. */
+  noRetryHighRiskWrites?: boolean;
+  /** If true, validate action output against zodOutputSchema (or outputSchema JSON Schema fallback). Default: true. */
+  validateOutput?: boolean;
   logger?: RuntimeLogger;
   metrics?: RuntimeMetrics;
   idempotencyStore?: IdempotencyStore;
@@ -43,6 +54,8 @@ export class ExecutionRuntime {
       maxRetries: config?.maxRetries ?? 2,
       retryDelayMs: config?.retryDelayMs ?? 200,
       defaultTimeoutMs: config?.defaultTimeoutMs,
+      noRetryHighRiskWrites: config?.noRetryHighRiskWrites ?? true,
+      validateOutput: config?.validateOutput ?? true,
       logger: config?.logger ?? consoleLogger,
       metrics: config?.metrics ?? new NoopRuntimeMetrics(),
       idempotencyStore: config?.idempotencyStore ?? new InMemoryIdempotencyStore(),
@@ -62,6 +75,7 @@ export class ExecutionRuntime {
     const metrics = this.config.metrics!;
     const startedAt = Date.now();
 
+    // --- Input validation ---
     const schemaErrors = action.zodInputSchema
       ? validateWithZod(action.zodInputSchema, input)
       : action.inputSchema
@@ -80,6 +94,7 @@ export class ExecutionRuntime {
       };
     }
 
+    // --- Policy evaluation (includes action.networks check) ---
     const decision = this.policy.evaluate({
       action: action as ActionDefinition,
       context,
@@ -105,27 +120,48 @@ export class ExecutionRuntime {
       };
     }
 
+    // --- Idempotency: atomic acquire ---
     const cacheKey = options.idempotencyKey ? `${action.name}:${options.idempotencyKey}` : undefined;
+    let lockToken: string | undefined;
     if (cacheKey) {
       const cached = await this.config.idempotencyStore!.get<TOutput>(cacheKey);
-      if (cached) {
+      if (cached !== null) {
         logger.log('info', 'idempotency hit', { traceId, action: action.name, cacheKey });
         metrics.incCounter('runtime.idempotency_hit', 1, { action: action.name });
         return {
           ok: true,
-          output: cached,
+          output: cached.value,
           traceId,
           action: action.name,
           attempts: 0,
         };
       }
+
+      const token = await this.config.idempotencyStore!.acquire(cacheKey, this.config.idempotencyTtlSeconds);
+      if (token === null) {
+        // Another execution is in progress for this key
+        return {
+          ok: false,
+          errorCode: ErrorCodes.IDEMPOTENCY_CONFLICT,
+          error: `Another execution is in progress for key: ${options.idempotencyKey}`,
+          traceId,
+          action: action.name,
+          attempts: 0,
+        };
+      }
+      lockToken = token;
     }
+
+    // --- Determine effective max retries ---
+    const isHighRiskWrite = action.riskLevel !== 'read' && this.config.noRetryHighRiskWrites;
+    const effectiveMaxRetries = isHighRiskWrite ? 0 : this.config.maxRetries;
 
     let attempt = 0;
     let lastErr: unknown;
 
-    while (attempt <= this.config.maxRetries) {
+    while (attempt <= effectiveMaxRetries) {
       attempt += 1;
+      const controller = new AbortController();
       try {
         logger.log('info', 'action run start', { traceId, action: action.name, attempt });
         this.config.hooks?.onActionStart?.({
@@ -137,10 +173,26 @@ export class ExecutionRuntime {
         });
         const timeoutMs = options.timeoutMs ?? this.config.defaultTimeoutMs;
         const output = timeoutMs
-          ? await this.withTimeout(action.execute(context, input), timeoutMs, action.name)
+          ? await this.withTimeout(action.execute(context, input), timeoutMs, action.name, controller)
           : await action.execute(context, input);
+
+        // --- Output validation (M-02) ---
+        if (this.config.validateOutput) {
+          const outputErrors = action.zodOutputSchema
+            ? validateWithZod(action.zodOutputSchema, output)
+            : action.outputSchema
+            ? validateAgainstJsonSchema(action.outputSchema as any, output)
+            : [];
+          if (outputErrors.length) {
+            throw new AgentkitRuntimeError(
+              ErrorCodes.INVALID_OUTPUT,
+              `Output schema validation failed: ${outputErrors.join('; ')}`
+            );
+          }
+        }
+
         if (cacheKey) {
-          await this.config.idempotencyStore!.set(
+          await this.config.idempotencyStore!.complete(
             cacheKey,
             output,
             this.config.idempotencyTtlSeconds
@@ -165,6 +217,7 @@ export class ExecutionRuntime {
           attempts: attempt,
         };
       } catch (err) {
+        controller.abort();
         lastErr = err;
         const norm = normalizeError(err);
         logger.log('warn', 'action run failed', {
@@ -175,8 +228,21 @@ export class ExecutionRuntime {
           error: norm.message,
         });
 
-        if (attempt > this.config.maxRetries) break;
-        await new Promise((r) => setTimeout(r, this.config.retryDelayMs * attempt));
+        // Non-retryable errors: break immediately
+        if (NON_RETRYABLE_CODES.has(norm.code)) break;
+
+        if (attempt > effectiveMaxRetries) break;
+        // Exponential backoff: delay * 2^(attempt-1)
+        await new Promise((r) => setTimeout(r, this.config.retryDelayMs * Math.pow(2, attempt - 1)));
+      }
+    }
+
+    // Release idempotency lock so future retries with same key can proceed
+    if (cacheKey && lockToken) {
+      try {
+        await this.config.idempotencyStore!.release(cacheKey, lockToken);
+      } catch (releaseErr) {
+        logger.log('warn', 'failed to release idempotency lock', { traceId, cacheKey, error: String(releaseErr) });
       }
     }
 
@@ -202,14 +268,16 @@ export class ExecutionRuntime {
     };
   }
 
-  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, actionName: string): Promise<T> {
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, actionName: string, controller: AbortController): Promise<T> {
     return Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        setTimeout(
-          () => reject(new AgentkitRuntimeError(ErrorCodes.TIMEOUT, `Action ${actionName} timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
+        const timer = setTimeout(() => {
+          controller.abort();
+          reject(new AgentkitRuntimeError(ErrorCodes.TIMEOUT, `Action ${actionName} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        // Don't prevent process exit
+        if (typeof timer === 'object' && 'unref' in timer) timer.unref();
       }),
     ]);
   }

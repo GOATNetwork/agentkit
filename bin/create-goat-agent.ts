@@ -59,8 +59,8 @@ function tsconfig(): string {
     {
       compilerOptions: {
         target: 'ES2022',
-        module: 'NodeNext',
-        moduleResolution: 'NodeNext',
+        module: 'ES2022',
+        moduleResolution: 'Bundler',
         strict: true,
         esModuleInterop: true,
         skipLibCheck: true,
@@ -106,9 +106,12 @@ function srcIndex(opts: GenerateOptions): string {
   const registrations = pluginRegistrations(plugins);
 
   return `import { ActionProvider } from 'agentkit/providers';
-import { PolicyEngine } from 'agentkit/core';
-import { ExecutionRuntime } from 'agentkit/core';
+import { PolicyEngine, ExecutionRuntime } from 'agentkit/core';
+import { NoopWalletProvider } from 'agentkit/core';
 ${imports}
+
+// Replace NoopWalletProvider with a real provider (EvmWalletProvider or ViemWalletProvider) for production use.
+const wallet = new NoopWalletProvider();
 
 const provider = new ActionProvider();
 ${registrations}
@@ -141,16 +144,16 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       "import { walletBalanceAction, getDetailsAction, getAllowanceAction, contractReadAction, contractWriteAction, transferNativeAction, transferErc20Action, approveErc20Action, deployContractAction, resolveTokenAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(walletBalanceAction);',
-      'provider.register(getDetailsAction);',
-      'provider.register(getAllowanceAction);',
-      'provider.register(contractReadAction);',
-      'provider.register(contractWriteAction);',
-      'provider.register(transferNativeAction);',
-      'provider.register(transferErc20Action);',
-      'provider.register(approveErc20Action);',
-      'provider.register(deployContractAction);',
-      'provider.register(resolveTokenAction);',
+      'provider.register(walletBalanceAction(wallet));',
+      'provider.register(getDetailsAction(wallet));',
+      'provider.register(getAllowanceAction(wallet));',
+      'provider.register(contractReadAction(wallet));',
+      'provider.register(contractWriteAction(wallet));',
+      'provider.register(transferNativeAction(wallet));',
+      'provider.register(transferErc20Action(wallet));',
+      'provider.register(approveErc20Action(wallet));',
+      'provider.register(deployContractAction(wallet));',
+      'provider.register(resolveTokenAction());',
     ],
   },
   wgbtc: {
@@ -158,23 +161,23 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       "import { wgbtcWrapAction, wgbtcUnwrapAction, wgbtcBalanceAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(wgbtcWrapAction);',
-      'provider.register(wgbtcUnwrapAction);',
-      'provider.register(wgbtcBalanceAction);',
+      'provider.register(wgbtcWrapAction(wallet));',
+      'provider.register(wgbtcUnwrapAction(wallet));',
+      'provider.register(wgbtcBalanceAction(wallet));',
     ],
   },
   bridge: {
     imports: [
-      "import { bridgeWithdrawAction as onchainBridgeWithdraw, bridgeCancelAction, bridgeRefundAction, bridgeRbfAction, bridgeDepositStatusAction, bridgeWithdrawalStatusAction, bridgeGetParamsAction } from 'agentkit/plugins';",
+      "import { bridgeWithdrawAction as onchainBridgeWithdraw, bridgeCancelAction, bridgeRefundAction, bridgeReplaceByFeeAction, bridgeDepositStatusAction, bridgeWithdrawalStatusAction, bridgeGetParamsAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(onchainBridgeWithdraw);',
-      'provider.register(bridgeCancelAction);',
-      'provider.register(bridgeRefundAction);',
-      'provider.register(bridgeRbfAction);',
-      'provider.register(bridgeDepositStatusAction);',
-      'provider.register(bridgeWithdrawalStatusAction);',
-      'provider.register(bridgeGetParamsAction);',
+      'provider.register(onchainBridgeWithdraw(wallet));',
+      'provider.register(bridgeCancelAction(wallet));',
+      'provider.register(bridgeRefundAction(wallet));',
+      'provider.register(bridgeReplaceByFeeAction(wallet));',
+      'provider.register(bridgeDepositStatusAction(wallet));',
+      'provider.register(bridgeWithdrawalStatusAction(wallet));',
+      'provider.register(bridgeGetParamsAction(wallet));',
     ],
   },
   bitcoin: {
@@ -182,9 +185,9 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       "import { bitcoinBlockHashAction, bitcoinLatestHeightAction, bitcoinNetworkNameAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(bitcoinBlockHashAction);',
-      'provider.register(bitcoinLatestHeightAction);',
-      'provider.register(bitcoinNetworkNameAction);',
+      'provider.register(bitcoinBlockHashAction(wallet));',
+      'provider.register(bitcoinLatestHeightAction(wallet));',
+      'provider.register(bitcoinNetworkNameAction(wallet));',
     ],
   },
   x402: {
@@ -208,9 +211,9 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       "import { erc721BalanceAction, erc721TransferAction, erc721MintAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(erc721BalanceAction);',
-      'provider.register(erc721TransferAction);',
-      'provider.register(erc721MintAction);',
+      'provider.register(erc721BalanceAction(wallet));',
+      'provider.register(erc721TransferAction(wallet));',
+      'provider.register(erc721MintAction(wallet));',
     ],
   },
   faucet: {
@@ -226,9 +229,9 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       "import { goatTokenDelegateAction, goatTokenGetVotesAction, goatTokenGetDelegatesAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(goatTokenDelegateAction);',
-      'provider.register(goatTokenGetVotesAction);',
-      'provider.register(goatTokenGetDelegatesAction);',
+      'provider.register(goatTokenDelegateAction(wallet));',
+      'provider.register(goatTokenGetVotesAction(wallet));',
+      'provider.register(goatTokenGetDelegatesAction(wallet));',
     ],
   },
 };

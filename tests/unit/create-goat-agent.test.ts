@@ -67,4 +67,32 @@ describe('generateProject', () => {
     expect(files['src/index.ts']).toContain("'goat-mainnet'");
     expect(files['.env.example']).toContain('goat-mainnet');
   });
+
+  it('generated code includes wallet instantiation', () => {
+    const files = generateProject({ projectName: 'a', preset: 'minimal', network: 'goat-testnet' });
+    const src = files['src/index.ts'];
+    expect(src).toContain('NoopWalletProvider');
+    expect(src).toContain('const wallet');
+  });
+
+  it('generated code passes wallet to action factories', () => {
+    const files = generateProject({ projectName: 'a', preset: 'defi', network: 'goat-testnet' });
+    const src = files['src/index.ts'];
+    expect(src).toContain('walletBalanceAction(wallet)');
+    expect(src).toContain('wgbtcWrapAction(wallet)');
+    expect(src).toContain('onchainBridgeWithdraw(wallet)');
+  });
+
+  it('uses bridgeReplaceByFeeAction (not bridgeRbfAction)', () => {
+    const files = generateProject({ projectName: 'a', preset: 'defi', network: 'goat-testnet' });
+    const src = files['src/index.ts'];
+    expect(src).toContain('bridgeReplaceByFeeAction');
+    expect(src).not.toContain('bridgeRbfAction');
+  });
+
+  it('tsconfig uses Bundler module resolution', () => {
+    const files = generateProject({ projectName: 'a', preset: 'minimal', network: 'goat-testnet' });
+    const tsconfig = JSON.parse(files['tsconfig.json']);
+    expect(tsconfig.compilerOptions.moduleResolution).toBe('Bundler');
+  });
 });

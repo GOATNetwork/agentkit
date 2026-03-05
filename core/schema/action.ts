@@ -18,5 +18,6 @@ export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   zodInputSchema?: ZodTypeAny;
+  zodOutputSchema?: ZodTypeAny;
   execute: (ctx: ActionContext, input: TInput) => Promise<TOutput>;
 }

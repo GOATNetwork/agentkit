@@ -68,4 +68,17 @@ describe('PolicyEngine', () => {
     const result = engine.evaluate({ action: makeAction({ requiresConfirmation: true }), context: ctx, payload: {}, confirmed: true });
     expect(result.allowed).toBe(true);
   });
+
+  it('blocks action when action.networks does not include context.network', () => {
+    const engine = new PolicyEngine({ allowedNetworks: ['goat-testnet', 'goat-mainnet'], maxRiskWithoutConfirm: 'high', writeEnabled: true });
+    const result = engine.evaluate({ action: makeAction({ networks: ['goat-mainnet'] }), context: ctx, payload: {} });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('does not support network');
+  });
+
+  it('allows action when action.networks is empty (wildcard)', () => {
+    const engine = new PolicyEngine({ allowedNetworks: ['goat-testnet'], maxRiskWithoutConfirm: 'high', writeEnabled: true });
+    const result = engine.evaluate({ action: makeAction({ networks: [] }), context: ctx, payload: {} });
+    expect(result.allowed).toBe(true);
+  });
 });

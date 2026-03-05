@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface ApproveErc20Input {
   tokenAddress: string;
@@ -13,8 +14,8 @@ export interface ApproveErc20Output {
 }
 
 const inputSchema = z.object({
-  tokenAddress: z.string().min(4),
-  spender: z.string().min(4),
+  tokenAddress: evmAddress,
+  spender: evmAddress,
   amount: z.string().regex(/^\d+$/),
 });
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface ContractReadInput {
   contractAddress: string;
@@ -14,7 +15,7 @@ export interface ContractReadOutput {
 }
 
 const inputSchema = z.object({
-  contractAddress: z.string().min(4),
+  contractAddress: evmAddress,
   abi: z.array(z.string()),
   functionName: z.string().min(1),
   args: z.array(z.unknown()).default([]),

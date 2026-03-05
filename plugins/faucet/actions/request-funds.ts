@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { FaucetAdapter, FaucetResult } from '../adapters/types';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface RequestFundsInput {
   chain: string;
@@ -10,8 +11,8 @@ export interface RequestFundsInput {
 
 const inputSchema = z.object({
   chain: z.string().min(1),
-  address: z.string().min(4),
-  tokenAddress: z.string().min(4).optional(),
+  address: evmAddress,
+  tokenAddress: evmAddress.optional(),
 });
 
 export function faucetRequestFundsAction(adapter: FaucetAdapter): ActionDefinition<RequestFundsInput, FaucetResult> {

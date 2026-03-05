@@ -68,7 +68,7 @@ describe('x402 integration flow', () => {
   it('create', async () => {
     const { runtime, provider, context } = buildRuntime();
     const res = await runtime.run(provider.get('goat.x402.payment.create'), context, {
-      to: '0xabc',
+      to: '0x000000000000000000000000000000000000bEEF',
       asset: 'USDC',
       amount: '10',
     }, { confirmed: true });

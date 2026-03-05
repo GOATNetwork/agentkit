@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface Erc721BalanceInput {
   contractAddress: string;
@@ -14,8 +15,8 @@ export interface Erc721BalanceOutput {
 }
 
 const inputSchema = z.object({
-  contractAddress: z.string().min(4),
-  owner: z.string().min(4),
+  contractAddress: evmAddress,
+  owner: evmAddress,
 });
 
 const ERC721_BALANCE_ABI = ['function balanceOf(address owner) view returns (uint256)'];

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
+import { evmAddress } from '../../../core/schema/validators';
 
 export interface TransferNativeInput {
   to: string;
@@ -12,7 +13,7 @@ export interface TransferNativeOutput {
 }
 
 const inputSchema = z.object({
-  to: z.string().min(4),
+  to: evmAddress,
   amountWei: z.string().regex(/^\d+$/),
 });
 
