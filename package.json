@@ -35,7 +35,8 @@
     "prepublishOnly": "pnpm run build",
     "test:unit": "vitest run tests/unit",
     "test": "vitest run tests",
-    "test:integration": "vitest run tests/integration"
+    "test:integration": "vitest run tests/integration",
+    "test:redis": "node scripts/test-redis.mjs"
   },
   "dependencies": {
     "ethers": "^6.15.0",

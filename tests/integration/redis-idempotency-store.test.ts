@@ -3,22 +3,35 @@ import Redis from 'ioredis';
 import { RedisIdempotencyStore } from '../../core/runtime/idempotency/redis-store';
 
 const REDIS_URL = process.env.AGENTKIT_REDIS_URL ?? 'redis://127.0.0.1:6379';
+const REQUIRE_REDIS = process.env.REQUIRE_REDIS === '1';
 const TEST_PREFIX = `agentkit:test:${Date.now()}:`;
 
 // Probe Redis connectivity at module level (top-level await in ESM)
 let redis: Redis | undefined;
 let store: RedisIdempotencyStore | undefined;
 let canConnect = false;
+let connectError: unknown;
 
 try {
   const r = new Redis(REDIS_URL, { lazyConnect: true, connectTimeout: 2000 });
+  // Avoid noisy "Unhandled error event" logs; explicit connect() handles failure.
+  r.on('error', () => {});
   await r.connect();
   await r.ping();
   redis = r;
   store = new RedisIdempotencyStore(r);
   canConnect = true;
-} catch {
+} catch (err) {
+  connectError = err;
   canConnect = false;
+}
+
+if (REQUIRE_REDIS && !canConnect) {
+  throw new Error(
+    `Redis is required for this test run but is not reachable at ${REDIS_URL}. ` +
+      `Start Redis locally and retry.`,
+    { cause: connectError as Error | undefined }
+  );
 }
 
 afterAll(async () => {

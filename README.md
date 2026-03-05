@@ -64,6 +64,12 @@ Base 对齐冲刺计划：
 - 运行：`pnpm run test:integration`
 - 覆盖：x402 主流程 + runtime 幂等
 
+Redis 幂等集成测试（需要本地 Redis）：
+- 运行：`pnpm run test:redis`
+- 覆盖：RedisIdempotencyStore 全链路，包括 Lua compare-and-delete 原子释放
+- 前置条件：本地 Redis 可达（默认 `redis://127.0.0.1:6379`，可通过 `AGENTKIT_REDIS_URL` 覆盖）
+- 注意：`test:integration` 在无 Redis 时会自动跳过这些测试；`test:redis` 则要求 Redis 必须可用，否则直接报错
+
 可选环境变量：
 - `GOAT_MAINNET_RPC_URL`
 - `GOAT_TESTNET_RPC_URL`
