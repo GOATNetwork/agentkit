@@ -4,10 +4,14 @@
 
 ## 目录结构
 
-- `skills/`：可复用技能模块
-- `apps/`：应用实现与集成入口
+- `core/`：运行时引擎、策略引擎、错误类型、指标、日志
+- `plugins/`：功能模块（x402、wallet、bitvm2、erc721、wgbtc、faucet、goat-token、bridge、bitcoin、dex、layerzero）
+- `adapters/`：AI 框架集成（OpenAI、LangChain、MCP、Vercel AI SDK、OpenAI Agents SDK）
+- `providers/`：Action 注册表与工具清单生成（Zod → JSON Schema）
+- `networks/`：Goat 链适配层
 - `examples/`：示例代码与最小可运行样例
 - `docs/`：设计文档与使用说明
+- `bin/`：CLI 脚手架（`create-goat-agent`）
 
 ## x402（Agent 作为支付方）
 
@@ -70,4 +74,4 @@ Base 对齐冲刺计划：
 
 1. 用真实商户凭证联调 `/api/v1/orders` / `status` / `calldata-signature`
 2. 对接 merchant callback 签名流（EIP-712）
-3. 为 skills 和 apps 统一接口定义
+3. 为 plugins 和 adapters 统一接口定义
