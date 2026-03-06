@@ -25,8 +25,8 @@ export function wgbtcUnwrapAction(wallet: WalletProvider): ActionDefinition<Wgbt
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.writeContract(WGBTC_ADDRESS, WGBTC_WITHDRAW_ABI, 'withdraw', [input.amountWei]);
+    async execute(ctx, input) {
+      return wallet.writeContract(WGBTC_ADDRESS, WGBTC_WITHDRAW_ABI, 'withdraw', [input.amountWei], undefined, { signal: ctx.signal });
     },
   };
 }

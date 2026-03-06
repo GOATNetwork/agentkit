@@ -32,13 +32,14 @@ export function bridgeWithdrawAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       return wallet.writeContract(
         BRIDGE_ADDRESS,
         WITHDRAW_ABI,
         'withdraw',
         [input.receiver, input.maxTxPrice],
         input.amountWei,
+        { signal: ctx.signal },
       );
     },
   };

@@ -12,8 +12,8 @@ export function faucetGetChainsAction(adapter: FaucetAdapter): ActionDefinition<
     requiresConfirmation: false,
     networks: ['goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, _input) {
-      return adapter.getChains();
+    async execute(ctx, _input) {
+      return adapter.getChains(ctx.signal);
     },
   };
 }

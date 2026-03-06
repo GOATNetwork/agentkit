@@ -51,6 +51,7 @@ describe('bridge.withdraw', () => {
       'withdraw',
       ['bc1qexample', 50],
       '10000000000',
+      { signal: undefined },
     );
   });
 });
@@ -71,6 +72,8 @@ describe('bridge.cancel', () => {
       ['function cancel1(uint256)'],
       'cancel1',
       [42],
+      undefined,
+      { signal: undefined },
     );
   });
 });
@@ -91,6 +94,8 @@ describe('bridge.refund', () => {
       ['function refund(uint256)'],
       'refund',
       [7],
+      undefined,
+      { signal: undefined },
     );
   });
 });
@@ -111,6 +116,8 @@ describe('bridge.replace_by_fee', () => {
       ['function replaceByFee(uint256,uint16)'],
       'replaceByFee',
       [3, 100],
+      undefined,
+      { signal: undefined },
     );
   });
 });

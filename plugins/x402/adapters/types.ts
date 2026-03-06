@@ -31,10 +31,10 @@ export interface CreatePaymentIntentResult {
 }
 
 export interface MerchantGatewayAdapter {
-  createPaymentIntent(input: CreatePaymentIntentInput): Promise<CreatePaymentIntentResult>;
-  getPaymentStatus(paymentId: string): Promise<{ paymentId: string; status: PaymentStatus; raw?: unknown }>;
-  submitPaymentAuthorization(paymentId: string, signature: string): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }>;
-  cancelPayment(paymentId: string): Promise<{ paymentId: string; status: 'cancelled' | 'failed'; raw?: unknown }>;
+  createPaymentIntent(input: CreatePaymentIntentInput, signal?: AbortSignal): Promise<CreatePaymentIntentResult>;
+  getPaymentStatus(paymentId: string, signal?: AbortSignal): Promise<{ paymentId: string; status: PaymentStatus; raw?: unknown }>;
+  submitPaymentAuthorization(paymentId: string, signature: string, signal?: AbortSignal): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }>;
+  cancelPayment(paymentId: string, signal?: AbortSignal): Promise<{ paymentId: string; status: 'cancelled' | 'failed'; raw?: unknown }>;
 }
 
 export interface TransferTokenInput {
@@ -50,5 +50,5 @@ export interface TransferTokenResult {
 export interface PayerWalletAdapter {
   normalizeAuthorization(input: string): Promise<string>;
   signCalldataTypedData(request: CalldataSignRequest): Promise<string>;
-  transferToken(input: TransferTokenInput): Promise<TransferTokenResult>;
+  transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult>;
 }

@@ -15,6 +15,9 @@ export class AgentkitRuntimeError extends Error implements AgentkitError {
 export function normalizeError(err: unknown): AgentkitRuntimeError {
   if (err instanceof AgentkitRuntimeError) return err;
   if (err instanceof Error) {
+    if (err.message === 'Operation aborted' || err.name === 'AbortError') {
+      return new AgentkitRuntimeError(ErrorCodes.ABORTED, err.message, err);
+    }
     return new AgentkitRuntimeError(ErrorCodes.INTERNAL_ERROR, err.message, err);
   }
   return new AgentkitRuntimeError(ErrorCodes.INTERNAL_ERROR, 'Unknown runtime error', err);

@@ -49,7 +49,7 @@ export function oftSendAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const refundAddress = input.refundAddress ?? (await wallet.getAddress());
       const sendParam = [
         input.dstEid,
@@ -67,6 +67,7 @@ export function oftSendAction(
         'send',
         [sendParam, fee, refundAddress],
         input.nativeFee,
+        { signal: ctx.signal },
       );
     },
   };

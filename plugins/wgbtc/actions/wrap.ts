@@ -24,8 +24,8 @@ export function wgbtcWrapAction(wallet: WalletProvider): ActionDefinition<WgbtcW
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.transferNative(WGBTC_ADDRESS, input.amountWei);
+    async execute(ctx, input) {
+      return wallet.transferNative(WGBTC_ADDRESS, input.amountWei, { signal: ctx.signal });
     },
   };
 }

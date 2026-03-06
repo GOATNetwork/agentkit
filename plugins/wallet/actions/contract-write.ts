@@ -29,8 +29,8 @@ export function contractWriteAction(wallet: WalletProvider): ActionDefinition<Co
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.writeContract(input.contractAddress, input.abi, input.functionName, input.args);
+    async execute(ctx, input) {
+      return wallet.writeContract(input.contractAddress, input.abi, input.functionName, input.args, undefined, { signal: ctx.signal });
     },
   };
 }

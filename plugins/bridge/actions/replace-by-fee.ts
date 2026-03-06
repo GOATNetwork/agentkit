@@ -29,11 +29,11 @@ export function bridgeReplaceByFeeAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       return wallet.writeContract(BRIDGE_ADDRESS, RBF_ABI, 'replaceByFee', [
         input.withdrawalId,
         input.maxTxPrice,
-      ]);
+      ], undefined, { signal: ctx.signal });
     },
   };
 }

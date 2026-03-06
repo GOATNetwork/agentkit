@@ -8,7 +8,7 @@ import {
   type WalletClient,
   type PublicClient,
 } from 'viem';
-import type { WalletProvider } from './wallet-provider';
+import type { WalletProvider, WalletCallOptions } from './wallet-provider';
 
 const ERC20_ABI = parseAbi([
   'function balanceOf(address owner) view returns (uint256)',
@@ -25,6 +25,21 @@ export class ViemWalletProvider implements WalletProvider {
     this.walletClient = createWalletClient({ account, chain, transport });
     this.publicClient = createPublicClient({ chain, transport });
     this.networkName = networkName ?? chain.name;
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new Error('Operation aborted');
+  }
+
+  private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise;
+    this.throwIfAborted(signal);
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('Operation aborted')), { once: true });
+      }),
+    ]);
   }
 
   async getAddress(): Promise<string> {
@@ -53,14 +68,15 @@ export class ViemWalletProvider implements WalletProvider {
     return balance.toString();
   }
 
-  async transferNative(to: string, amountWei: string): Promise<{ txHash: string }> {
-    const hash = await this.walletClient.sendTransaction({
+  async transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
+    this.throwIfAborted(options?.signal);
+    const hash = await this.raceSignal(this.walletClient.sendTransaction({
       to: to as `0x${string}`,
       value: BigInt(amountWei),
       chain: this.walletClient.chain,
       account: this.walletClient.account!,
-    });
-    await this.publicClient.waitForTransactionReceipt({ hash });
+    }), options?.signal);
+    await this.raceSignal(this.publicClient.waitForTransactionReceipt({ hash }), options?.signal);
     return { txHash: hash };
   }
 
@@ -68,16 +84,18 @@ export class ViemWalletProvider implements WalletProvider {
     tokenAddress: string,
     to: string,
     amount: string,
+    options?: WalletCallOptions,
   ): Promise<{ txHash: string }> {
-    const hash = await this.walletClient.writeContract({
+    this.throwIfAborted(options?.signal);
+    const hash = await this.raceSignal(this.walletClient.writeContract({
       address: tokenAddress as `0x${string}`,
       abi: ERC20_ABI,
       functionName: 'transfer',
       args: [to as `0x${string}`, BigInt(amount)],
       chain: this.walletClient.chain,
       account: this.walletClient.account!,
-    });
-    await this.publicClient.waitForTransactionReceipt({ hash });
+    }), options?.signal);
+    await this.raceSignal(this.publicClient.waitForTransactionReceipt({ hash }), options?.signal);
     return { txHash: hash };
   }
 
@@ -85,16 +103,18 @@ export class ViemWalletProvider implements WalletProvider {
     tokenAddress: string,
     spender: string,
     amount: string,
+    options?: WalletCallOptions,
   ): Promise<{ txHash: string }> {
-    const hash = await this.walletClient.writeContract({
+    this.throwIfAborted(options?.signal);
+    const hash = await this.raceSignal(this.walletClient.writeContract({
       address: tokenAddress as `0x${string}`,
       abi: ERC20_ABI,
       functionName: 'approve',
       args: [spender as `0x${string}`, BigInt(amount)],
       chain: this.walletClient.chain,
       account: this.walletClient.account!,
-    });
-    await this.publicClient.waitForTransactionReceipt({ hash });
+    }), options?.signal);
+    await this.raceSignal(this.publicClient.waitForTransactionReceipt({ hash }), options?.signal);
     return { txHash: hash };
   }
 
@@ -133,9 +153,11 @@ export class ViemWalletProvider implements WalletProvider {
     functionName: string,
     args: unknown[],
     value?: string,
+    options?: WalletCallOptions,
   ): Promise<{ txHash: string }> {
+    this.throwIfAborted(options?.signal);
     const parsedAbi = parseAbi(abi as readonly string[]);
-    const hash = await this.walletClient.writeContract({
+    const hash = await this.raceSignal(this.walletClient.writeContract({
       address: contractAddress as `0x${string}`,
       abi: parsedAbi,
       functionName,
@@ -143,8 +165,8 @@ export class ViemWalletProvider implements WalletProvider {
       value: value ? BigInt(value) : undefined,
       chain: this.walletClient.chain,
       account: this.walletClient.account!,
-    });
-    await this.publicClient.waitForTransactionReceipt({ hash });
+    }), options?.signal);
+    await this.raceSignal(this.publicClient.waitForTransactionReceipt({ hash }), options?.signal);
     return { txHash: hash };
   }
 
@@ -153,17 +175,19 @@ export class ViemWalletProvider implements WalletProvider {
     bytecode: string,
     args: unknown[] = [],
     value?: string,
+    options?: WalletCallOptions,
   ): Promise<{ txHash: string; contractAddress: string }> {
+    this.throwIfAborted(options?.signal);
     const parsedAbi = parseAbi(abi as readonly string[]);
-    const hash = await this.walletClient.deployContract({
+    const hash = await this.raceSignal(this.walletClient.deployContract({
       abi: parsedAbi,
       bytecode: bytecode as `0x${string}`,
       args: args as any,
       value: value ? BigInt(value) : undefined,
       chain: this.walletClient.chain,
       account: this.walletClient.account!,
-    });
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    }), options?.signal);
+    const receipt = await this.raceSignal(this.publicClient.waitForTransactionReceipt({ hash }), options?.signal);
     return {
       txHash: hash,
       contractAddress: receipt.contractAddress ?? '',

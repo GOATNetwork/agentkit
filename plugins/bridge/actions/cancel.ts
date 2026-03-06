@@ -27,8 +27,8 @@ export function bridgeCancelAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.writeContract(BRIDGE_ADDRESS, CANCEL_ABI, 'cancel1', [input.withdrawalId]);
+    async execute(ctx, input) {
+      return wallet.writeContract(BRIDGE_ADDRESS, CANCEL_ABI, 'cancel1', [input.withdrawalId], undefined, { signal: ctx.signal });
     },
   };
 }

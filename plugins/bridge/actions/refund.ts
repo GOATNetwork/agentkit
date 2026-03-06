@@ -27,8 +27,8 @@ export function bridgeRefundAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.writeContract(BRIDGE_ADDRESS, REFUND_ABI, 'refund', [input.withdrawalId]);
+    async execute(ctx, input) {
+      return wallet.writeContract(BRIDGE_ADDRESS, REFUND_ABI, 'refund', [input.withdrawalId], undefined, { signal: ctx.signal });
     },
   };
 }

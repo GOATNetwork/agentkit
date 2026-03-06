@@ -88,6 +88,7 @@ describe('dex.swap', () => {
       'exactInputSingle',
       [['0x0000000000000000000000000000000000000001', '0x0000000000000000000000000000000000000002', 3000, '0xABCD', BigInt('1000000'), BigInt('490000'), 0]],
       undefined,
+      { signal: undefined },
     );
   });
 
@@ -110,6 +111,7 @@ describe('dex.swap', () => {
       'exactInputSingle',
       expect.any(Array),
       '1000000',
+      { signal: undefined },
     );
   });
 });
@@ -181,6 +183,7 @@ describe('dex.add_liquidity', () => {
         BigInt('1700000000'),
       ]],
       undefined,
+      { signal: undefined },
     );
   });
 });
@@ -208,6 +211,8 @@ describe('dex.remove_liquidity', () => {
       ['function decreaseLiquidity((uint256,uint128,uint256,uint256,uint256)) returns (uint256,uint256)'],
       'decreaseLiquidity',
       [[BigInt('42'), BigInt('500000'), BigInt('400000'), BigInt('800000'), BigInt('1700000000')]],
+      undefined,
+      { signal: undefined },
     );
   });
 });
@@ -233,6 +238,8 @@ describe('dex.collect_fees', () => {
       ['function collect((uint256,address,uint128,uint128)) returns (uint256,uint256)'],
       'collect',
       [[BigInt('42'), '0xABCD', BigInt('999999999'), BigInt('999999999')]],
+      undefined,
+      { signal: undefined },
     );
   });
 });

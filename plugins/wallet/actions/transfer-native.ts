@@ -25,8 +25,8 @@ export function transferNativeAction(wallet: WalletProvider): ActionDefinition<T
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.transferNative(input.to, input.amountWei);
+    async execute(ctx, input) {
+      return wallet.transferNative(input.to, input.amountWei, { signal: ctx.signal });
     },
   };
 }

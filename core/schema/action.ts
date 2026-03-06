@@ -7,6 +7,7 @@ export interface ActionContext {
   network: string;
   caller?: string;
   now: number;
+  signal?: AbortSignal;
 }
 
 export interface ActionDefinition<TInput = unknown, TOutput = unknown> {

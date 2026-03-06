@@ -98,6 +98,7 @@ describe('oft.send', () => {
         '0xABCD',
       ],
       '50000000000000',
+      { signal: undefined },
     );
   });
 
@@ -129,6 +130,7 @@ describe('oft.send', () => {
         '0x9999999999999999999999999999999999999999',
       ]),
       '50000000000000',
+      { signal: undefined },
     );
     expect(wallet.getAddress).not.toHaveBeenCalled();
   });

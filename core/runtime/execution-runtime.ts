@@ -13,6 +13,7 @@ const NON_RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set([
   ErrorCodes.INVALID_INPUT,
   ErrorCodes.POLICY_BLOCKED,
   ErrorCodes.ACTION_NOT_FOUND,
+  ErrorCodes.ABORTED,
 ]);
 
 export interface ExecutionOptions {
@@ -172,9 +173,13 @@ export class ExecutionRuntime {
           timestamp: Date.now(),
         });
         const timeoutMs = options.timeoutMs ?? this.config.defaultTimeoutMs;
+        const mergedSignal = timeoutMs && context.signal
+          ? AbortSignal.any([controller.signal, context.signal])
+          : timeoutMs ? controller.signal : context.signal;
+        const ctxWithSignal = mergedSignal ? { ...context, signal: mergedSignal } : context;
         const output = timeoutMs
-          ? await this.withTimeout(action.execute(context, input), timeoutMs, action.name, controller)
-          : await action.execute(context, input);
+          ? await this.withTimeout(action.execute(ctxWithSignal, input), timeoutMs, action.name, controller)
+          : await action.execute(ctxWithSignal, input);
 
         // --- Output validation (M-02) ---
         if (this.config.validateOutput) {
@@ -218,8 +223,10 @@ export class ExecutionRuntime {
         };
       } catch (err) {
         controller.abort();
-        lastErr = err;
-        const norm = normalizeError(err);
+        const norm = context.signal?.aborted
+          ? new AgentkitRuntimeError(ErrorCodes.ABORTED, 'Operation aborted by caller', err)
+          : normalizeError(err);
+        lastErr = norm;
         logger.log('warn', 'action run failed', {
           traceId,
           action: action.name,

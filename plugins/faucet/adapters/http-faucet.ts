@@ -24,14 +24,17 @@ export class HttpFaucetAdapter implements FaucetAdapter {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  private fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  private fetchWithTimeout(url: string, init: RequestInit = {}, externalSignal?: AbortSignal): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+    const signal = externalSignal
+      ? AbortSignal.any([controller.signal, externalSignal])
+      : controller.signal;
+    return fetch(url, { ...init, signal }).finally(() => clearTimeout(timer));
   }
 
-  async getChains(): Promise<unknown> {
-    const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, 'faucet/chains'));
+  async getChains(signal?: AbortSignal): Promise<unknown> {
+    const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, 'faucet/chains'), {}, signal);
     const data = await parseBodySafe(resp);
     if (!resp.ok) {
       throw new AgentkitRuntimeError(
@@ -43,7 +46,7 @@ export class HttpFaucetAdapter implements FaucetAdapter {
     return data;
   }
 
-  async requestFunds(input: { chain: string; address: string; tokenAddress?: string }): Promise<FaucetResult> {
+  async requestFunds(input: { chain: string; address: string; tokenAddress?: string }, signal?: AbortSignal): Promise<FaucetResult> {
     const body: Record<string, string> = { chain: input.chain, address: input.address };
     if (input.tokenAddress) body.token_address = input.tokenAddress;
 
@@ -51,7 +54,7 @@ export class HttpFaucetAdapter implements FaucetAdapter {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, signal);
     const data = await parseBodySafe(resp);
     if (!resp.ok) {
       throw new AgentkitRuntimeError(

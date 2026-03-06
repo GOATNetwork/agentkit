@@ -13,8 +13,8 @@ export class WalletProviderPayerAdapter implements PayerWalletAdapter {
     return this.wallet.signTypedData(request.domain, request.types, request.message);
   }
 
-  async transferToken(input: TransferTokenInput): Promise<TransferTokenResult> {
-    const result = await this.wallet.transferErc20(input.tokenAddress, input.to, input.amount);
+  async transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult> {
+    const result = await this.wallet.transferErc20(input.tokenAddress, input.to, input.amount, { signal });
     return { txHash: result.txHash };
   }
 }

@@ -33,8 +33,8 @@ export function deployContractAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.deployContract(input.abi, input.bytecode, input.args ?? [], input.value);
+    async execute(ctx, input) {
+      return wallet.deployContract(input.abi, input.bytecode, input.args ?? [], input.value, { signal: ctx.signal });
     },
   };
 }

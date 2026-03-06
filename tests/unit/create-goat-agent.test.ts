@@ -78,7 +78,7 @@ describe('generateProject', () => {
   it('generated code passes wallet to action factories', () => {
     const files = generateProject({ projectName: 'a', preset: 'defi', network: 'goat-testnet' });
     const src = files['src/index.ts'];
-    expect(src).toContain('walletBalanceAction(wallet)');
+    expect(src).toContain('walletBalanceAction(new NoopWalletReadAdapter())');
     expect(src).toContain('wgbtcWrapAction(wallet)');
     expect(src).toContain('onchainBridgeWithdraw(wallet)');
   });

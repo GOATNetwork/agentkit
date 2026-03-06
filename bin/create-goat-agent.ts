@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env -S node --import tsx/esm
 
 import * as readline from 'node:readline/promises';
 import * as fs from 'node:fs';
@@ -125,7 +125,7 @@ const policy = new PolicyEngine({
 const runtime = new ExecutionRuntime(policy, { maxRetries: 2, retryDelayMs: 200 });
 
 console.log('Agent ready — ${opts.preset} preset, ${plugins.length} plugin(s)');
-console.log('Registered actions:', provider.list().map(a => a.name));
+console.log('Registered actions:', provider.list().map((a: { name: string }) => a.name));
 `;
 }
 
@@ -141,10 +141,10 @@ interface PluginSnippet {
 const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   wallet: {
     imports: [
-      "import { walletBalanceAction, getDetailsAction, getAllowanceAction, contractReadAction, contractWriteAction, transferNativeAction, transferErc20Action, approveErc20Action, deployContractAction, resolveTokenAction } from 'agentkit/plugins';",
+      "import { walletBalanceAction, getDetailsAction, getAllowanceAction, contractReadAction, contractWriteAction, transferNativeAction, transferErc20Action, approveErc20Action, deployContractAction, resolveTokenAction, NoopWalletReadAdapter } from 'agentkit/plugins';",
     ],
     registrations: [
-      'provider.register(walletBalanceAction(wallet));',
+      'provider.register(walletBalanceAction(new NoopWalletReadAdapter()));',
       'provider.register(getDetailsAction(wallet));',
       'provider.register(getAllowanceAction(wallet));',
       'provider.register(contractReadAction(wallet));',
@@ -284,6 +284,15 @@ async function main() {
     const files = generateProject(opts);
 
     const root = path.resolve(opts.projectName);
+
+    // Compute correct relative path from generated project back to agentkit root
+    const agentkitRoot = path.resolve(path.dirname(import.meta.url.replace('file://', '')), '..');
+    const relPath = path.relative(root, agentkitRoot).split(path.sep).join('/');
+    files['package.json'] = files['package.json'].replace(
+      '"agentkit": "file:.."',
+      `"agentkit": "file:${relPath}"`,
+    );
+
     for (const [filePath, content] of Object.entries(files)) {
       const abs = path.join(root, filePath);
       fs.mkdirSync(path.dirname(abs), { recursive: true });

@@ -29,12 +29,14 @@ export function erc721MintAction(wallet: WalletProvider): ActionDefinition<Erc72
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       return wallet.writeContract(
         input.contractAddress,
         ERC721_MINT_ABI,
         'mint',
         [input.to, input.tokenId],
+        undefined,
+        { signal: ctx.signal },
       );
     },
   };

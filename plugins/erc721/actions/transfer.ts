@@ -31,12 +31,14 @@ export function erc721TransferAction(wallet: WalletProvider): ActionDefinition<E
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       return wallet.writeContract(
         input.contractAddress,
         ERC721_TRANSFER_ABI,
         'transferFrom',
         [input.from, input.to, input.tokenId],
+        undefined,
+        { signal: ctx.signal },
       );
     },
   };

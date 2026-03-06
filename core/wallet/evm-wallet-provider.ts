@@ -1,5 +1,5 @@
 import { Contract, ContractFactory, type Provider, type Signer } from 'ethers';
-import type { WalletProvider } from './wallet-provider';
+import type { WalletProvider, WalletCallOptions } from './wallet-provider';
 
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
@@ -35,23 +35,41 @@ export class EvmWalletProvider implements WalletProvider {
     return balance.toString();
   }
 
-  async transferNative(to: string, amountWei: string): Promise<{ txHash: string }> {
-    const tx = await this.signer.sendTransaction({ to, value: BigInt(amountWei) });
-    const receipt = await tx.wait();
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new Error('Operation aborted');
+  }
+
+  private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise;
+    this.throwIfAborted(signal);
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('Operation aborted')), { once: true });
+      }),
+    ]);
+  }
+
+  async transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
+    this.throwIfAborted(options?.signal);
+    const tx = await this.raceSignal(this.signer.sendTransaction({ to, value: BigInt(amountWei) }), options?.signal);
+    const receipt = await this.raceSignal(tx.wait(), options?.signal);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
-  async transferErc20(tokenAddress: string, to: string, amount: string): Promise<{ txHash: string }> {
+  async transferErc20(tokenAddress: string, to: string, amount: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
+    this.throwIfAborted(options?.signal);
     const token = new Contract(tokenAddress, ERC20_ABI, this.signer);
-    const tx = await token.transfer(to, BigInt(amount));
-    const receipt = await tx.wait();
+    const tx = await this.raceSignal(token.transfer(to, BigInt(amount)), options?.signal);
+    const receipt = await this.raceSignal(tx.wait() as Promise<any>, options?.signal);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
-  async approveErc20(tokenAddress: string, spender: string, amount: string): Promise<{ txHash: string }> {
+  async approveErc20(tokenAddress: string, spender: string, amount: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
+    this.throwIfAborted(options?.signal);
     const token = new Contract(tokenAddress, ERC20_ABI, this.signer);
-    const tx = await token.approve(spender, BigInt(amount));
-    const receipt = await tx.wait();
+    const tx = await this.raceSignal(token.approve(spender, BigInt(amount)), options?.signal);
+    const receipt = await this.raceSignal(tx.wait() as Promise<any>, options?.signal);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
@@ -79,11 +97,13 @@ export class EvmWalletProvider implements WalletProvider {
     functionName: string,
     args: unknown[],
     value?: string,
+    options?: WalletCallOptions,
   ): Promise<{ txHash: string }> {
+    this.throwIfAborted(options?.signal);
     const contract = new Contract(contractAddress, abi, this.signer);
     const overrides = value ? { value: BigInt(value) } : {};
-    const tx = await contract[functionName](...args, overrides);
-    const receipt = await tx.wait();
+    const tx = await this.raceSignal(contract[functionName](...args, overrides), options?.signal);
+    const receipt = await this.raceSignal(tx.wait() as Promise<any>, options?.signal);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
@@ -92,12 +112,15 @@ export class EvmWalletProvider implements WalletProvider {
     bytecode: string,
     args: unknown[] = [],
     value?: string,
+    options?: WalletCallOptions,
   ): Promise<{ txHash: string; contractAddress: string }> {
+    this.throwIfAborted(options?.signal);
     const factory = new ContractFactory(abi, bytecode, this.signer);
     const overrides = value ? { value: BigInt(value) } : {};
-    const contract = await factory.deploy(...args, overrides);
-    const tx = await contract.deploymentTransaction()!.wait();
+    const contract = await this.raceSignal(factory.deploy(...args, overrides), options?.signal);
+    const deployTx = contract.deploymentTransaction()!;
+    await this.raceSignal(deployTx.wait(), options?.signal);
     const contractAddress = await contract.getAddress();
-    return { txHash: tx?.hash ?? '', contractAddress };
+    return { txHash: deployTx.hash, contractAddress };
   }
 }

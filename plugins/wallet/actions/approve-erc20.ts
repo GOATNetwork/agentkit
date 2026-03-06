@@ -27,8 +27,8 @@ export function approveErc20Action(wallet: WalletProvider): ActionDefinition<App
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.approveErc20(input.tokenAddress, input.spender, input.amount);
+    async execute(ctx, input) {
+      return wallet.approveErc20(input.tokenAddress, input.spender, input.amount, { signal: ctx.signal });
     },
   };
 }

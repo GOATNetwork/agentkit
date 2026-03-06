@@ -9,7 +9,8 @@ import { buildToolManifest } from './tool-manifest';
 export class ActionProvider {
   private readonly actions = new Map<string, ActionDefinition>();
 
-  register(action: ActionDefinition): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  register(action: ActionDefinition<any, any>): void {
     if (this.actions.has(action.name)) {
       throw new Error(`Action already exists: ${action.name}`);
     }

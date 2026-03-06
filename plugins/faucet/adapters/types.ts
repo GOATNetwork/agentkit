@@ -6,8 +6,8 @@ export interface FaucetResult {
 }
 
 export interface FaucetAdapter {
-  getChains(): Promise<unknown>;
-  requestFunds(input: { chain: string; address: string; tokenAddress?: string }): Promise<FaucetResult>;
+  getChains(signal?: AbortSignal): Promise<unknown>;
+  requestFunds(input: { chain: string; address: string; tokenAddress?: string }, signal?: AbortSignal): Promise<FaucetResult>;
 }
 
 export class NoopFaucetAdapter implements FaucetAdapter {

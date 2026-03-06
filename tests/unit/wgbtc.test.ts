@@ -32,7 +32,7 @@ describe('wgbtc.wrap', () => {
 
     const result = await action.execute(ctx, { amountWei: '1000000' });
     expect(result).toEqual({ txHash: '0xtx_wrap' });
-    expect(wallet.transferNative).toHaveBeenCalledWith(WGBTC_ADDRESS, '1000000');
+    expect(wallet.transferNative).toHaveBeenCalledWith(WGBTC_ADDRESS, '1000000', { signal: undefined });
   });
 });
 
@@ -52,6 +52,8 @@ describe('wgbtc.unwrap', () => {
       ['function withdraw(uint256)'],
       'withdraw',
       ['500000'],
+      undefined,
+      { signal: undefined },
     );
   });
 });

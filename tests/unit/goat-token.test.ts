@@ -42,6 +42,8 @@ describe('goat_token.delegate', () => {
       ['function delegate(address)'],
       'delegate',
       ['0x1234'],
+      undefined,
+      { signal: undefined },
     );
   });
 });

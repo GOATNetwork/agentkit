@@ -19,10 +19,22 @@ export class EvmPayerWalletAdapter implements PayerWalletAdapter {
     return signature;
   }
 
-  async transferToken(input: TransferTokenInput): Promise<TransferTokenResult> {
+  private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise;
+    if (signal.aborted) throw new Error('Operation aborted');
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('Operation aborted')), { once: true });
+      }),
+    ]);
+  }
+
+  async transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult> {
+    if (signal?.aborted) throw new Error('Operation aborted');
     const token = new Contract(input.tokenAddress, ERC20_ABI, this.signer);
-    const tx = await token.transfer(input.to, BigInt(input.amount));
-    const receipt = await tx.wait();
-    return { txHash: receipt?.hash ?? tx.hash };
+    const tx = await this.raceSignal(token.transfer(input.to, BigInt(input.amount)), signal);
+    const receipt = await this.raceSignal(tx.wait() as Promise<any>, signal);
+    return { txHash: (receipt?.hash ?? tx.hash) as string };
   }
 }

@@ -37,8 +37,8 @@ export function createPaymentAction(merchant: MerchantGatewayAdapter): ActionDef
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return merchant.createPaymentIntent(input);
+    async execute(ctx, input) {
+      return merchant.createPaymentIntent(input, ctx.signal);
     },
   };
 }

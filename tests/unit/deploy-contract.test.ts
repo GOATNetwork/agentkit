@@ -49,6 +49,7 @@ describe('wallet.deploy_contract', () => {
       '0x6080',
       [42],
       undefined,
+      { signal: undefined },
     );
   });
 
@@ -67,6 +68,7 @@ describe('wallet.deploy_contract', () => {
       '0x6080',
       [],
       '1000000',
+      { signal: undefined },
     );
   });
 
@@ -84,6 +86,7 @@ describe('wallet.deploy_contract', () => {
       '0xabcdef',
       [],
       undefined,
+      { signal: undefined },
     );
   });
 });

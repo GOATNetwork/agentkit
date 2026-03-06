@@ -15,7 +15,7 @@ export class NoopPayerWalletAdapter implements PayerWalletAdapter {
     return '0xmock_signature';
   }
 
-  async transferToken(_input: TransferTokenInput): Promise<TransferTokenResult> {
+  async transferToken(_input: TransferTokenInput, _signal?: AbortSignal): Promise<TransferTokenResult> {
     return { txHash: `0xmocktx${Date.now().toString(16)}` };
   }
 }

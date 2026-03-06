@@ -33,13 +33,15 @@ export function dexCollectFeesAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const recipient = await wallet.getAddress();
       return wallet.writeContract(
         POSITION_MANAGER_ADDRESS,
         COLLECT_ABI,
         'collect',
         [[BigInt(input.tokenId), recipient, BigInt(input.amount0Max), BigInt(input.amount1Max)]],
+        undefined,
+        { signal: ctx.signal },
       );
     },
   };

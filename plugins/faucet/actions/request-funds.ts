@@ -23,8 +23,8 @@ export function faucetRequestFundsAction(adapter: FaucetAdapter): ActionDefiniti
     requiresConfirmation: false,
     networks: ['goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return adapter.requestFunds(input);
+    async execute(ctx, input) {
+      return adapter.requestFunds(input, ctx.signal);
     },
   };
 }

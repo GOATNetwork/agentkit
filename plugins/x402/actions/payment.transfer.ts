@@ -29,8 +29,8 @@ export function transferPaymentAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return payer.transferToken(input);
+    async execute(ctx, input) {
+      return payer.transferToken(input, ctx.signal);
     },
   };
 }

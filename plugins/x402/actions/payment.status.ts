@@ -25,8 +25,8 @@ export function paymentStatusAction(
     requiresConfirmation: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return merchant.getPaymentStatus(input.paymentId);
+    async execute(ctx, input) {
+      return merchant.getPaymentStatus(input.paymentId, ctx.signal);
     },
   };
 }

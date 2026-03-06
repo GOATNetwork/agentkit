@@ -49,10 +49,13 @@ export class GoatAdapter {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  private fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  private fetchWithTimeout(url: string, init: RequestInit = {}, externalSignal?: AbortSignal): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+    const signal = externalSignal
+      ? AbortSignal.any([controller.signal, externalSignal])
+      : controller.signal;
+    return fetch(url, { ...init, signal }).finally(() => clearTimeout(timer));
   }
 
   private get rpcUrl(): string {
@@ -84,12 +87,12 @@ export class GoatAdapter {
     }
   }
 
-  async ping(): Promise<{ chainIdHex: string; rpcUrl: string }> {
+  async ping(signal?: AbortSignal): Promise<{ chainIdHex: string; rpcUrl: string }> {
     const resp = await this.fetchWithTimeout(this.rpcUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
-    });
+    }, signal);
 
     const json = (await resp.json()) as { result?: string };
     if (!json.result) throw new Error('Failed to ping Goat RPC');
@@ -129,7 +132,7 @@ export class GoatAdapter {
     };
   }
 
-  private async x402Request<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<T> {
+  private async x402Request<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
     const headers = this.signX402Request(body ?? {});
 
     const resp = await this.fetchWithTimeout(`${this.x402BaseUrl}${path}`, {
@@ -139,7 +142,7 @@ export class GoatAdapter {
         ...headers,
       },
       body: body ? JSON.stringify(body) : undefined,
-    });
+    }, signal);
 
     const text = await resp.text();
     let data: unknown = {};
@@ -158,7 +161,7 @@ export class GoatAdapter {
     return data as T;
   }
 
-  async x402CreatePayment(params: X402CreatePaymentParams): Promise<X402CreatePaymentResult> {
+  async x402CreatePayment(params: X402CreatePaymentParams, signal?: AbortSignal): Promise<X402CreatePaymentResult> {
     this.requireX402Credential('x402CreatePayment');
 
     const chainId = goatNetworks[this.network].chainId;
@@ -171,7 +174,7 @@ export class GoatAdapter {
       callback_calldata: params.callbackCalldata,
     };
 
-    const raw = await this.x402Request<any>('POST', '/api/v1/orders', body);
+    const raw = await this.x402Request<any>('POST', '/api/v1/orders', body, signal);
 
     return {
       paymentId: raw?.order_id ?? `x402_${Date.now()}`,
@@ -182,7 +185,8 @@ export class GoatAdapter {
 
   async x402AuthorizePayment(
     paymentId: string,
-    signature?: string
+    signature?: string,
+    signal?: AbortSignal,
   ): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }> {
     this.requireX402Credential('x402AuthorizePayment');
 
@@ -190,14 +194,14 @@ export class GoatAdapter {
       return { paymentId, status: 'failed', raw: { message: 'missing signature for calldata-signature' } };
     }
 
-    await this.x402Request('POST', `/api/v1/orders/${paymentId}/calldata-signature`, { signature });
+    await this.x402Request('POST', `/api/v1/orders/${paymentId}/calldata-signature`, { signature }, signal);
     return { paymentId, status: 'authorized' };
   }
 
-  async x402GetPaymentStatus(paymentId: string): Promise<X402OrderStatusResult> {
+  async x402GetPaymentStatus(paymentId: string, signal?: AbortSignal): Promise<X402OrderStatusResult> {
     this.requireX402Credential('x402GetPaymentStatus');
 
-    const raw = await this.x402Request<any>('GET', `/api/v1/orders/${paymentId}`);
+    const raw = await this.x402Request<any>('GET', `/api/v1/orders/${paymentId}`, undefined, signal);
     const mapped = ORDER_STATUS_MAP[String(raw?.status)] ?? 'created';
     return {
       paymentId,

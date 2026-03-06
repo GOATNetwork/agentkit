@@ -37,7 +37,7 @@ export function dexRemoveLiquidityAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       return wallet.writeContract(
         POSITION_MANAGER_ADDRESS,
         DECREASE_LIQUIDITY_ABI,
@@ -49,6 +49,8 @@ export function dexRemoveLiquidityAction(
           BigInt(input.amount1Min),
           BigInt(input.deadline),
         ]],
+        undefined,
+        { signal: ctx.signal },
       );
     },
   };

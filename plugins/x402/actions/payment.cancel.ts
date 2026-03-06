@@ -25,8 +25,8 @@ export function cancelPaymentAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return merchant.cancelPayment(input.paymentId);
+    async execute(ctx, input) {
+      return merchant.cancelPayment(input.paymentId, ctx.signal);
     },
   };
 }

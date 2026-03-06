@@ -39,7 +39,7 @@ export function dexSwapAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const recipient = await wallet.getAddress();
       return wallet.writeContract(
         SWAP_ROUTER_ADDRESS,
@@ -47,6 +47,7 @@ export function dexSwapAction(
         'exactInputSingle',
         [[input.tokenIn, input.tokenOut, input.fee, recipient, BigInt(input.amountIn), BigInt(input.amountOutMinimum), 0]],
         input.value,
+        { signal: ctx.signal },
       );
     },
   };

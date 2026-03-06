@@ -66,18 +66,21 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
-  private fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  private fetchWithTimeout(url: string, init: RequestInit, externalSignal?: AbortSignal): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+    const signal = externalSignal
+      ? AbortSignal.any([controller.signal, externalSignal])
+      : controller.signal;
+    return fetch(url, { ...init, signal }).finally(() => clearTimeout(timer));
   }
 
-  async createPaymentIntent(input: CreatePaymentIntentInput): Promise<CreatePaymentIntentResult> {
+  async createPaymentIntent(input: CreatePaymentIntentInput, signal?: AbortSignal): Promise<CreatePaymentIntentResult> {
     const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, this.routes.createOrderPath), {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...this.headers },
       body: JSON.stringify(input),
-    });
+    }, signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'merchant create-order failed');
 
@@ -91,11 +94,11 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
     };
   }
 
-  async getPaymentStatus(paymentId: string) {
+  async getPaymentStatus(paymentId: string, signal?: AbortSignal) {
     const path = this.routes.orderStatusPath.replace(':paymentId', encodeURIComponent(paymentId));
     const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, path), {
       headers: { ...this.headers },
-    });
+    }, signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'merchant order-status failed');
 
@@ -107,12 +110,12 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
     };
   }
 
-  async submitPaymentAuthorization(paymentId: string, signature: string) {
+  async submitPaymentAuthorization(paymentId: string, signature: string, signal?: AbortSignal) {
     const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, this.routes.submitSignaturePath), {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...this.headers },
       body: JSON.stringify({ paymentId, signature }),
-    });
+    }, signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'merchant submit-signature failed');
 
@@ -123,12 +126,12 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
     };
   }
 
-  async cancelPayment(paymentId: string) {
+  async cancelPayment(paymentId: string, signal?: AbortSignal) {
     const resp = await this.fetchWithTimeout(joinUrl(this.baseUrl, this.routes.cancelOrderPath), {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...this.headers },
       body: JSON.stringify({ paymentId }),
-    });
+    }, signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'merchant cancel-order failed');
 

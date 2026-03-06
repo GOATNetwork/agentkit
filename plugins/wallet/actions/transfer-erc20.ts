@@ -27,8 +27,8 @@ export function transferErc20Action(wallet: WalletProvider): ActionDefinition<Tr
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.transferErc20(input.tokenAddress, input.to, input.amount);
+    async execute(ctx, input) {
+      return wallet.transferErc20(input.tokenAddress, input.to, input.amount, { signal: ctx.signal });
     },
   };
 }

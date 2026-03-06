@@ -28,8 +28,8 @@ export function goatTokenDelegateAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
-      return wallet.writeContract(GOAT_TOKEN_ADDRESS, DELEGATE_ABI, 'delegate', [input.delegatee]);
+    async execute(ctx, input) {
+      return wallet.writeContract(GOAT_TOKEN_ADDRESS, DELEGATE_ABI, 'delegate', [input.delegatee], undefined, { signal: ctx.signal });
     },
   };
 }

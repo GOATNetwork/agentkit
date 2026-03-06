@@ -49,7 +49,7 @@ export function dexAddLiquidityAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const recipient = await wallet.getAddress();
       return wallet.writeContract(
         POSITION_MANAGER_ADDRESS,
@@ -69,6 +69,7 @@ export function dexAddLiquidityAction(
           BigInt(input.deadline),
         ]],
         input.value,
+        { signal: ctx.signal },
       );
     },
   };

@@ -42,12 +42,12 @@ export function submitSignatureAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const sig = input.calldataSignRequest
         ? await payer.signCalldataTypedData(input.calldataSignRequest)
         : await payer.normalizeAuthorization(input.signature!);
 
-      return merchant.submitPaymentAuthorization(input.paymentId, sig);
+      return merchant.submitPaymentAuthorization(input.paymentId, sig, ctx.signal);
     },
   };
 }

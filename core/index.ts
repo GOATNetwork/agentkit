@@ -23,7 +23,7 @@ export type { RuntimeLogger, LogLevel } from './runtime/logger';
 export { InMemoryRuntimeMetrics, NoopRuntimeMetrics, buildSeriesKey, parseSeriesKey } from './metrics/metrics';
 export type { RuntimeMetrics } from './metrics/metrics';
 export { renderPrometheus } from './metrics/prometheus';
-export type { WalletProvider } from './wallet/wallet-provider';
+export type { WalletProvider, WalletCallOptions } from './wallet/wallet-provider';
 export { EvmWalletProvider } from './wallet/evm-wallet-provider';
 export { NoopWalletProvider } from './wallet/noop-wallet-provider';
 export { ViemWalletProvider } from './wallet/viem-wallet-provider';
