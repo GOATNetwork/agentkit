@@ -1,0 +1,13 @@
+export {
+  erc8004RegisterAgentAction,
+  IDENTITY_REGISTRY_ADDRESS,
+  REPUTATION_REGISTRY_ADDRESS,
+} from './actions/register-agent';
+export { erc8004SetAgentURIAction } from './actions/set-agent-uri';
+export { erc8004GetMetadataAction } from './actions/get-metadata';
+export { erc8004SetMetadataAction } from './actions/set-metadata';
+export { erc8004GetAgentWalletAction } from './actions/get-agent-wallet';
+export { erc8004GiveFeedbackAction } from './actions/give-feedback';
+export { erc8004RevokeFeedbackAction } from './actions/revoke-feedback';
+export { erc8004GetReputationAction } from './actions/get-reputation';
+export { erc8004GetClientsAction } from './actions/get-clients';

@@ -74,13 +74,13 @@ External integrations use adapter interfaces with swappable implementations:
 
 All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`, `POLICY_BLOCKED`, `ACTION_NOT_FOUND`, `ADAPTER_REQUEST_FAILED`, `WALLET_SIGN_FAILED`, `WALLET_TRANSFER_FAILED`, `TIMEOUT`, `INTERNAL_ERROR`.
 
-### Plugin Inventory (51 actions across 11 plugins)
+### Plugin Inventory (67 actions across 12 plugins)
 
 | Plugin | Directory | Actions | Notes |
 |--------|-----------|---------|-------|
 | **x402** | `plugins/x402/` | 5 — `payment.create`, `payment.status`, `payment.submit-signature`, `payment.transfer`, `payment.cancel` | EIP-712 payment flow via MerchantGatewayAdapter |
 | **Wallet** | `plugins/wallet/` | 10 — `balance`, `get_details`, `get_allowance`, `contract_read`, `contract_write`, `transfer_native`, `transfer_erc20`, `approve_erc20`, `deploy_contract`, `resolve_token` | Generic EVM wallet operations |
-| **BitVM2** | `plugins/bitvm2/` | 3 — `bridge.deposit`, `bridge.withdraw`, `bridge.status` | Stubbed BitVM2 bridge via GoatAdapter |
+| **BitVM2** | `plugins/bitvm2/` | 10 — `bridge.deposit`, `bridge.withdraw`, `bridge.status`, `stake.register_pubkey`, `stake.approve`, `stake.stake`, `stake.lock`, `pegbtc.balance`, `pegin.request`, `pegout.initiate` | BitVM2 bridge + staking via on-chain contracts (Gateway, StakeManagement, PegBTC) |
 | **ERC721** | `plugins/erc721/` | 3 — `balance`, `transfer`, `mint` | NFT operations |
 | **WGBTC** | `plugins/wgbtc/` | 3 — `wrap`, `unwrap`, `balance` | Wrapped GOAT BTC (predeployed `0xBC10…0000`) |
 | **Faucet** | `plugins/faucet/` | 2 — `request_funds`, `get_chains` | Testnet faucet via FaucetAdapter |
@@ -89,6 +89,7 @@ All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`
 | **Bitcoin** | `plugins/bitcoin/` | 3 — `block_hash`, `latest_height`, `network_name` | Bitcoin block oracle / light client (predeployed `0xbC10…0005`), all read-only |
 | **DEX** | `plugins/dex/` | 7 — `quote`, `swap`, `get_pool`, `add_liquidity`, `remove_liquidity`, `collect_fees`, `get_position` | OKU (Uniswap V3) on goat-mainnet; `swap`/`add_liquidity` are payable |
 | **LayerZero** | `plugins/layerzero/` | 3 — `quote_send`, `send`, `quote_oft` | LayerZero V2 OFT cross-chain transfers (EID 30361); `send` is payable |
+| **ERC-8004** | `plugins/erc8004/` | 9 — `register_agent`, `set_agent_uri`, `get_metadata`, `set_metadata`, `get_agent_wallet`, `give_feedback`, `revoke_feedback`, `get_reputation`, `get_clients` | Trustless Agents (Identity + Reputation registries); CREATE2-deployed |
 
 ### Predeployed Contract Addresses
 
@@ -103,6 +104,11 @@ All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`
 | OKU PositionManager | `0x743E03cceB4af2efA3CC76838f6E8B50B63F184c` |
 | OKU V3Factory | `0xcb2436774C3e191c85056d248EF4260ce5f27A9D` |
 | LayerZero Endpoint V2 | `0x6F475642a6e85809B1c36Fa62763669b1b48DD5B` |
+| ERC-8004 Identity Registry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ERC-8004 Reputation Registry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| BitVM2 Gateway | `0x440c6dCA87C3511E1eBf4FDB1f584ddaA49dD029` |
+| BitVM2 StakeManagement | `0x4B6BD356FE9Ad077c6E3691BB2838e814B3F4032` |
+| BitVM2 PegBTC | `0xdA97429ea2082334C63813f092B6A6209bfC4DEb` |
 
 ### WalletProvider
 

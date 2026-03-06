@@ -14,7 +14,7 @@ export type Preset = 'minimal' | 'defi' | 'full';
 const PRESET_PLUGINS: Record<Preset, string[]> = {
   minimal: ['wallet'],
   defi: ['wallet', 'wgbtc', 'bridge', 'bitcoin'],
-  full: ['wallet', 'wgbtc', 'bridge', 'bitcoin', 'x402', 'bitvm2', 'erc721', 'faucet', 'goat-token'],
+  full: ['wallet', 'wgbtc', 'bridge', 'bitcoin', 'x402', 'bitvm2', 'erc721', 'faucet', 'goat-token', 'dex', 'layerzero', 'erc8004'],
 };
 
 export interface GenerateOptions {
@@ -200,10 +200,16 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   bitvm2: {
     imports: [
-      "// bitvm2 actions require GoatAdapter — see docs",
+      "import { bitvm2RegisterPubkeyAction, bitvm2StakeApproveAction, bitvm2StakeAction, bitvm2LockStakeAction, bitvm2PegBtcBalanceAction } from 'agentkit/plugins';",
+      "// bitvm2 pegin/pegout/bridge actions require GoatAdapter — see docs",
     ],
     registrations: [
-      '// TODO: register bitvm2 actions with your GoatAdapter instance',
+      'provider.register(bitvm2RegisterPubkeyAction(wallet));',
+      'provider.register(bitvm2StakeApproveAction(wallet));',
+      'provider.register(bitvm2StakeAction(wallet));',
+      'provider.register(bitvm2LockStakeAction(wallet));',
+      'provider.register(bitvm2PegBtcBalanceAction(wallet));',
+      '// TODO: register bitvm2 pegin/pegout actions with your GoatAdapter instance',
     ],
   },
   erc721: {
@@ -232,6 +238,46 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       'provider.register(goatTokenDelegateAction(wallet));',
       'provider.register(goatTokenGetVotesAction(wallet));',
       'provider.register(goatTokenGetDelegatesAction(wallet));',
+    ],
+  },
+  dex: {
+    imports: [
+      "import { dexQuoteAction, dexSwapAction, dexGetPoolAction, dexAddLiquidityAction, dexRemoveLiquidityAction, dexCollectFeesAction, dexGetPositionAction } from 'agentkit/plugins';",
+    ],
+    registrations: [
+      'provider.register(dexQuoteAction(wallet));',
+      'provider.register(dexSwapAction(wallet));',
+      'provider.register(dexGetPoolAction(wallet));',
+      'provider.register(dexAddLiquidityAction(wallet));',
+      'provider.register(dexRemoveLiquidityAction(wallet));',
+      'provider.register(dexCollectFeesAction(wallet));',
+      'provider.register(dexGetPositionAction(wallet));',
+    ],
+  },
+  layerzero: {
+    imports: [
+      "import { oftQuoteSendAction, oftSendAction, oftQuoteOftAction } from 'agentkit/plugins';",
+    ],
+    registrations: [
+      'provider.register(oftQuoteSendAction(wallet));',
+      'provider.register(oftSendAction(wallet));',
+      'provider.register(oftQuoteOftAction(wallet));',
+    ],
+  },
+  erc8004: {
+    imports: [
+      "import { erc8004RegisterAgentAction, erc8004SetAgentURIAction, erc8004GetMetadataAction, erc8004SetMetadataAction, erc8004GetAgentWalletAction, erc8004GiveFeedbackAction, erc8004RevokeFeedbackAction, erc8004GetReputationAction, erc8004GetClientsAction } from 'agentkit/plugins';",
+    ],
+    registrations: [
+      'provider.register(erc8004RegisterAgentAction(wallet));',
+      'provider.register(erc8004SetAgentURIAction(wallet));',
+      'provider.register(erc8004GetMetadataAction(wallet));',
+      'provider.register(erc8004SetMetadataAction(wallet));',
+      'provider.register(erc8004GetAgentWalletAction(wallet));',
+      'provider.register(erc8004GiveFeedbackAction(wallet));',
+      'provider.register(erc8004RevokeFeedbackAction(wallet));',
+      'provider.register(erc8004GetReputationAction(wallet));',
+      'provider.register(erc8004GetClientsAction(wallet));',
     ],
   },
 };
@@ -277,8 +323,9 @@ async function main() {
       ? presetAnswer.trim()
       : 'minimal') as Preset;
 
-    const networkAnswer = await rl.question('Network (goat-mainnet / goat-testnet) [goat-testnet]: ');
-    const network = networkAnswer.trim() || 'goat-testnet';
+    const defaultNetwork = preset === 'full' ? 'goat-mainnet' : 'goat-testnet';
+    const networkAnswer = await rl.question(`Network (goat-mainnet / goat-testnet) [${defaultNetwork}]: `);
+    const network = networkAnswer.trim() || defaultNetwork;
 
     const opts: GenerateOptions = { projectName: projectName.trim(), preset, network };
     const files = generateProject(opts);
