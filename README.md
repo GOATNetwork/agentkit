@@ -1,83 +1,140 @@
-# agentkit
+# GOAT AgentKit — Overview
 
-用于集成 Goat Network 的技能与应用 SDK。
+## One-Liner
 
-## 目录结构
+The GOAT Network counterpart to Coinbase AgentKit — a TypeScript SDK enabling AI Agents to autonomously execute on-chain operations on the GOAT chain.
 
-- `core/`：运行时引擎、策略引擎、错误类型、指标、日志
-- `plugins/`：功能模块（x402、wallet、bitvm2、erc721、wgbtc、faucet、goat-token、bridge、bitcoin、dex、layerzero）
-- `adapters/`：AI 框架集成（OpenAI、LangChain、MCP、Vercel AI SDK、OpenAI Agents SDK）
-- `providers/`：Action 注册表与工具清单生成（Zod → JSON Schema）
-- `networks/`：Goat 链适配层
-- `examples/`：示例代码与最小可运行样例
-- `docs/`：设计文档与使用说明
-- `bin/`：CLI 脚手架（`create-goat-agent`）
+---
 
-## x402（Agent 作为支付方）
+## Repository Structure
 
-当前默认按“付款方模式”设计：
-- Agent 调用**商户包装后的 API**（`MerchantGatewayAdapter`），而不是直接调用 goatx402 merchant-core API。
-- Agent 本地通过 `PayerWalletAdapter` 处理签名/授权数据。
+```
+agentkit/
+├── core/           # Runtime engine (policy, validation, idempotency, retry, metrics, timeout, hooks)
+├── plugins/        # 13 feature modules (95 Actions)
+├── adapters/       # 5 AI framework adapters
+├── providers/      # Action registry + tool manifest generation
+├── networks/       # GOAT chain adapter layer (mainnet / testnet)
+├── bin/            # CLI scaffolding (create-goat-agent)
+├── examples/       # Minimal runnable examples
+├── tests/          # Unit + integration tests
+└── docs/           # Design documents
+```
 
-默认提供：
-- `HttpMerchantGatewayAdapter`（对接商户 API，支持自定义路由）
-- `NoopPayerWalletAdapter`（本地开发占位）
+### Four-Layer Architecture
 
-商户接口合同模板：
-- `docs/x402-merchant-gateway.openapi.yaml`
+| Layer | Responsibility | Key File |
+|-------|---------------|----------|
+| **Core** | Runtime engine: Policy → Validation → Idempotency → Retry → Metrics → Timeout → Hooks | `core/runtime/execution-runtime.ts` |
+| **Plugins** | Concrete implementations of on-chain operations (each plugin is a group of Actions) | `plugins/*/actions/*.ts` |
+| **Adapters** | Convert Actions into tool formats for each AI framework | `adapters/*/tools.ts` |
+| **Providers** | Action registration, discovery, and JSON Schema tool manifest generation | `providers/action-provider.ts` |
 
-初始化示例：
-- `examples/x402-payment-flow/init-merchant-gateway.ts`
+---
 
-EIP-712 完整签名流示例：
-- `examples/x402-payment-flow/eip712-full-flow.ts`
-- 运行：`pnpm run example:x402-eip712`
+## Feature Modules (Plugins)
 
-错误码路径示例（INVALID_INPUT）：
-- `examples/minimal-agent/error-path.ts`
-- 运行：`pnpm run example:error-path`
+### Core On-Chain Operations
 
-幂等存储初始化示例（memory/redis 可切换）：
-- `examples/minimal-agent/runtime-with-store.ts`
-- 运行：`pnpm run example:runtime-store`
+| Plugin | Actions | Functionality |
+|--------|---------|---------------|
+| **wallet** | 10 | ERC20 transfer / approve / balance / contract read & write / deploy / token symbol resolution |
+| **bridge** | 7 | Bridge.sol real contract: withdraw / cancel / refund / replace-by-fee / deposit-status / withdrawal-status / get-params |
+| **dex** | 7 | OKU (Uniswap V3): swap / quote / get-pool / add-liquidity / remove-liquidity / collect-fees / get-position |
+| **x402** | 5 | Agent payment protocol: payment.create / submit-signature / transfer / status / cancel |
 
-Prometheus metrics 示例：
-- `examples/minimal-agent/metrics-prometheus.ts`
-- 运行：`pnpm run example:metrics`
-- 指标地址：`/metrics`（默认端口 `9464`）
-- 指标按 action 等标签导出（便于 Grafana 聚合）
+### Merchant & Identity
 
-支付方核心动作（当前）：
-- `goat.x402.payment.create`
-- `goat.x402.payment.submitSignature`（callback 场景）
-- `goat.x402.payment.transfer`（钱包转账支付本体）
-- `goat.x402.payment.status`
-- `goat.x402.payment.cancel`
+| Plugin | Actions | Functionality |
+|--------|---------|---------------|
+| **x402-merchant** | 30 | Merchant portal management: auth (register / login / refresh / invite) / dashboard / profile / orders / balance / addresses / callback-contracts / API keys / webhooks / invite-codes / audit-logs |
+| **erc8004** | 9 | ERC-8004 Trustless Agents: register-agent / set-agent-uri / get-metadata / set-metadata / get-agent-wallet / give-feedback / revoke-feedback / get-reputation / get-clients |
 
-Base 对齐冲刺计划：
-- `docs/base-parity-sprint-plan-2026-02-28.md`
+### Protocols & Assets
 
-商户联调 runbook：
-- `docs/merchant-integration-runbook.md`
+| Plugin | Actions | Functionality |
+|--------|---------|---------------|
+| **layerzero** | 3 | LayerZero V2 OFT cross-chain: quote-send / send / quote-oft |
+| **bitvm2** | 10 | BitVM2 BTC bridge + staking: bridge.deposit / bridge.withdraw / bridge.status / stake.register-pubkey / stake.approve / stake.stake / stake.lock / pegbtc.balance / pegin.request / pegout.initiate |
+| **erc721** | 3 | NFT: mint / transfer / balance |
+| **wgbtc** | 3 | Wrapped GBTC: wrap / unwrap / balance |
+| **goat-token** | 3 | Governance: delegate / get-votes / get-delegates |
+| **faucet** | 2 | Testnet tokens: request-funds / get-chains |
+| **bitcoin** | 3 | On-chain BTC light client: block-hash / latest-height / network-name |
 
-集成测试：
-- 运行：`pnpm run test:integration`
-- 覆盖：x402 主流程 + runtime 幂等
+**Total: 95 Actions across 13 plugins** + `customActionProvider()` for unlimited custom extensions.
 
-Redis 幂等集成测试（需要本地 Redis）：
-- 运行：`pnpm run test:redis`
-- 覆盖：RedisIdempotencyStore 全链路，包括 Lua compare-and-delete 原子释放
-- 前置条件：本地 Redis 可达（默认 `redis://127.0.0.1:6379`，可通过 `AGENTKIT_REDIS_URL` 覆盖）
-- 注意：`test:integration` 在无 Redis 时会自动跳过这些测试；`test:redis` 则要求 Redis 必须可用，否则直接报错
+---
 
-可选环境变量：
-- `GOAT_MAINNET_RPC_URL`
-- `GOAT_TESTNET_RPC_URL`
+## AI Framework Adapters
 
-> 兼容层里仍保留了 goatx402 merchant-core 直连方法，供联调或迁移使用。
+| Adapter | Target Framework |
+|---------|-----------------|
+| `openai/tools.ts` | OpenAI Function Calling |
+| `langchain/tools.ts` | LangChain Tools |
+| `mcp/tools.ts` | Model Context Protocol |
+| `vercel-ai/tools.ts` | Vercel AI SDK |
+| `openai-agents/tools.ts` | OpenAI Agents SDK |
 
-## 后续建议
+Define an Action once, automatically available across all five frameworks.
 
-1. 用真实商户凭证联调 `/api/v1/orders` / `status` / `calldata-signature`
-2. 对接 merchant callback 签名流（EIP-712）
-3. 为 plugins 和 adapters 统一接口定义
+---
+
+## Key Features
+
+### 1. x402 Agent Payment Protocol + Merchant Portal
+
+The core differentiating capability of AgentKit. Two complementary plugin sets:
+
+**Payer side** (x402 — 5 actions): The Agent acts as the "payer", completing payments with merchant gateways via EIP-712 signatures:
+- `HttpMerchantGatewayAdapter` — interfaces with merchant APIs
+- `EvmPayerWalletAdapter` — local signing and authorization
+- Full EIP-712 signing flow example (`examples/x402-payment-flow/`)
+
+**Merchant side** (x402-merchant — 30 actions): Full merchant portal management via `MerchantPortalClient` HTTP adapter — auth, dashboard, orders, balance, webhooks, API keys, callback contracts, invite codes, and audit logs. Per-request token isolation via `ActionContext.accessToken` with `sensitiveOutputFields` redaction for hook/log safety.
+
+This is the implementation of the Coinbase x402 protocol on GOAT Network, enabling Agents to complete on-chain payments without a human account.
+
+### 2. Production-Grade Runtime Engine
+
+Execution pipeline: **Policy Gate → Schema Validation (Zod) → Idempotency → Retry → Timeout → Metrics → Hooks**
+
+- **Policy Engine**: Risk-gated action execution by risk level
+- **Idempotency**: Dual-mode memory / Redis, with Lua script atomic lock release for Redis
+- **Metrics**: Built-in Prometheus export (`/metrics`), aggregated by action labels
+- **ExecutionHooks**: `onActionStart` / `onActionSuccess` / `onActionError` / `onPolicyBlocked` observation callbacks
+- **Timeout**: `Promise.race` implementation, supporting per-action and global defaults
+
+### 3. Dual WalletProvider
+
+- `EvmWalletProvider` (ethers.js) — full-featured, including `writeContract` / `deployContract`
+- `ViemWalletProvider` (viem) — modern EVM client
+- `NoopWalletProvider` — development/testing placeholder
+
+### 4. Token Registry + Symbol Resolution
+
+`networks/goat/tokens.ts` maintains a GOAT chain token mapping table. The `wallet.resolve_token` action supports operating with symbols (e.g., `USDC`) directly, without manually looking up contract addresses.
+
+### 5. CLI Scaffolding
+
+`create-goat-agent` offers three project templates:
+- **minimal** — bare-bones starter
+- **defi** — DeFi scenario (includes DEX + Bridge)
+- **full** — all features
+
+### 6. Dual Cross-Chain Channels
+
+- **Bridge.sol** — GOAT native bridge (with full lifecycle: cancel / refund / replace-by-fee)
+- **LayerZero V2 OFT** — general-purpose cross-chain protocol
+
+---
+
+## Highlights
+
+1. **High Action density**: 95 Actions across 13 plugins covering wallet, DEX, bridge, NFT, governance, payments, merchant management, agent identity, and cross-chain — surpassing Coinbase Base AgentKit (50+)
+2. **x402 payment is the killer feature**: Native Agent payment capability with full EIP-712 signing flow + 30-action merchant portal management, benchmarked against Coinbase but deployed on a Bitcoin L2
+3. **Solid runtime engineering**: Idempotency + policy gateway + Prometheus metrics + execution hooks — this is not a demo-grade SDK
+4. **Five-framework one-shot adaptation**: OpenAI / LangChain / MCP / Vercel AI / OpenAI Agents — define once, available everywhere
+5. **Developer-friendly**: CLI scaffolding + complete examples + `customActionProvider` custom extensions + dual WalletProvider
+6. **Unique Bitcoin ecosystem positioning**: Through BitVM2 + Bridge.Sol + BTC light client, building an Agent economy on a Bitcoin L2 — a track that Base AgentKit does not cover
+7. **ERC-8004 Trustless Agent identity**: On-chain agent registration, metadata, and reputation system — enabling verifiable Agent identity and trust scoring
