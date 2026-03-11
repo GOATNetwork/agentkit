@@ -15,7 +15,7 @@ export function merchantAddressesListAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/addresses', ctx.signal);
+      return client.get('/merchant/v1/addresses', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

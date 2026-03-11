@@ -17,7 +17,7 @@ export function merchantOrdersGetAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input: any) {
-      return client.get(`/merchant/v1/orders/${encodeURIComponent(input.order_id)}`, ctx.signal);
+      return client.get(`/merchant/v1/orders/${encodeURIComponent(input.order_id)}`, { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

@@ -15,7 +15,7 @@ export function merchantApiKeysGetAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/api-keys', ctx.signal);
+      return client.get('/merchant/v1/api-keys', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

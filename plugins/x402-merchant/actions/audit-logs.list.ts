@@ -22,7 +22,7 @@ export function merchantAuditLogsListAction(
       if (input.limit != null) params.set('limit', String(input.limit));
       if (input.offset != null) params.set('offset', String(input.offset));
       const qs = params.toString();
-      return client.get(`/merchant/v1/audit-logs${qs ? `?${qs}` : ''}`, ctx.signal);
+      return client.get(`/merchant/v1/audit-logs${qs ? `?${qs}` : ''}`, { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

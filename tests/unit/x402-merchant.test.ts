@@ -51,7 +51,13 @@ function mockClient(): MerchantPortalClient & {
   };
 }
 
+/** Context without accessToken — verifies fallback path. */
 const ctx = { traceId: 't1', network: 'goat-mainnet', now: Date.now() };
+const reqOpts = { signal: undefined, accessToken: undefined };
+
+/** Context with accessToken — verifies per-request auth path. */
+const ctxWithToken = { ...ctx, accessToken: 'session-tok' };
+const reqOptsWithToken = { signal: undefined, accessToken: 'session-tok' };
 
 // ── Auth ──────────────────────────────────────────────────────────
 
@@ -64,45 +70,112 @@ describe('merchant.auth.register', () => {
 
     const input = { merchant_id: 'shop', name: 'Shop', email: 'a@b.com', password: 'pass123', receive_type: 'DIRECT' as const };
     await action.execute(ctx, input);
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/auth/register', input, undefined);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/auth/register', input, { signal: undefined });
+  });
+
+  it('does NOT declare sensitiveOutputFields (pending-approval, no tokens returned)', () => {
+    const client = mockClient();
+    const action = merchantAuthRegisterAction(client);
+    expect(action.sensitiveOutputFields).toBeUndefined();
   });
 });
 
 describe('merchant.auth.register-invite', () => {
-  it('POSTs to /merchant/v1/auth/register/invite and sets token', async () => {
+  it('POSTs to /merchant/v1/auth/register/invite and returns token without mutating client', async () => {
     const client = mockClient();
     client.post.mockResolvedValue({ access_token: 'tok123', refresh_token: 'ref456' });
     const action = merchantAuthRegisterInviteAction(client);
     expect(action.name).toBe('goat.x402.merchant.auth.register-invite');
 
-    await action.execute(ctx, { invite_code: 'inv_abc', email: 'a@b.com', password: 'pass' });
-    expect(client.setAccessToken).toHaveBeenCalledWith('tok123');
+    const result = await action.execute(ctx, { invite_code: 'inv_abc', email: 'a@b.com', password: 'pass' });
+    expect(result.access_token).toBe('tok123');
+    expect(client.setAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('declares sensitiveOutputFields for token redaction', () => {
+    const client = mockClient();
+    const action = merchantAuthRegisterInviteAction(client);
+    expect(action.sensitiveOutputFields).toEqual(['access_token', 'refresh_token']);
   });
 });
 
 describe('merchant.auth.login', () => {
-  it('POSTs to /merchant/v1/auth/login and sets token', async () => {
+  it('POSTs to /merchant/v1/auth/login and returns token without mutating client', async () => {
     const client = mockClient();
     client.post.mockResolvedValue({ access_token: 'tok', refresh_token: 'ref' });
     const action = merchantAuthLoginAction(client);
     expect(action.name).toBe('goat.x402.merchant.auth.login');
 
-    await action.execute(ctx, { email: 'a@b.com', password: 'pass' });
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/auth/login', expect.any(Object), undefined);
-    expect(client.setAccessToken).toHaveBeenCalledWith('tok');
+    const result = await action.execute(ctx, { email: 'a@b.com', password: 'pass' });
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/auth/login', expect.any(Object), { signal: undefined });
+    expect(result.access_token).toBe('tok');
+    expect(client.setAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('declares sensitiveOutputFields for token redaction', () => {
+    const client = mockClient();
+    const action = merchantAuthLoginAction(client);
+    expect(action.sensitiveOutputFields).toEqual(['access_token', 'refresh_token']);
   });
 });
 
 describe('merchant.auth.refresh', () => {
-  it('POSTs to /merchant/v1/auth/refresh and sets new token', async () => {
+  it('POSTs to /merchant/v1/auth/refresh and returns new token without mutating client', async () => {
     const client = mockClient();
     client.post.mockResolvedValue({ access_token: 'newtok' });
     const action = merchantAuthRefreshAction(client);
     expect(action.name).toBe('goat.x402.merchant.auth.refresh');
     expect(action.riskLevel).toBe('low');
 
-    await action.execute(ctx, { refresh_token: 'ref' });
-    expect(client.setAccessToken).toHaveBeenCalledWith('newtok');
+    const result = await action.execute(ctx, { refresh_token: 'ref' });
+    expect(result.access_token).toBe('newtok');
+    expect(client.setAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('declares sensitiveOutputFields for token redaction', () => {
+    const client = mockClient();
+    const action = merchantAuthRefreshAction(client);
+    expect(action.sensitiveOutputFields).toEqual(['access_token', 'refresh_token']);
+  });
+});
+
+// ── Per-request accessToken via ActionContext ─────────────────────
+
+describe('per-request accessToken via context', () => {
+  it('authenticated actions forward ctx.accessToken to client (GET)', async () => {
+    const client = mockClient();
+    const action = merchantDashboardStatsAction(client);
+
+    await action.execute(ctxWithToken, {});
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/dashboard/stats', reqOptsWithToken);
+    expect(client.setAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('authenticated actions forward ctx.accessToken to client (POST with body)', async () => {
+    const client = mockClient();
+    const action = merchantWebhooksCreateAction(client);
+    const input = { url: 'https://example.com/hook', events: ['order.invoiced'] };
+
+    await action.execute(ctxWithToken, input);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/webhooks', input, reqOptsWithToken);
+  });
+
+  it('authenticated actions forward ctx.accessToken to client (DELETE)', async () => {
+    const client = mockClient();
+    const action = merchantWebhooksDeleteAction(client);
+
+    await action.execute(ctxWithToken, { webhook_id: 'wh-uuid' });
+    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/webhooks/wh-uuid', reqOptsWithToken);
+  });
+
+  it('token does NOT leak into action input (safe for hooks/logging)', async () => {
+    const client = mockClient();
+    const action = merchantDashboardStatsAction(client);
+    const input = {};
+
+    await action.execute(ctxWithToken, input);
+    // input remains empty — no access_token field that could be logged by hooks
+    expect(input).toEqual({});
   });
 });
 
@@ -116,7 +189,7 @@ describe('merchant.dashboard.stats', () => {
     expect(action.riskLevel).toBe('read');
 
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/dashboard/stats', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/dashboard/stats', reqOpts);
   });
 });
 
@@ -128,7 +201,7 @@ describe('merchant.profile', () => {
     const action = merchantProfileGetAction(client);
     expect(action.name).toBe('goat.x402.merchant.profile.get');
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/profile', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/profile', reqOpts);
   });
 
   it('update PUTs /merchant/v1/profile', async () => {
@@ -138,7 +211,7 @@ describe('merchant.profile', () => {
     expect(action.riskLevel).toBe('medium');
 
     await action.execute(ctx, { name: 'New Name' });
-    expect(client.put).toHaveBeenCalledWith('/merchant/v1/profile', { name: 'New Name' }, undefined);
+    expect(client.put).toHaveBeenCalledWith('/merchant/v1/profile', { name: 'New Name' }, reqOpts);
   });
 });
 
@@ -163,7 +236,7 @@ describe('merchant.orders', () => {
     expect(action.name).toBe('goat.x402.merchant.orders.get');
 
     await action.execute(ctx, { order_id: 'uuid-123' });
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/orders/uuid-123', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/orders/uuid-123', reqOpts);
   });
 });
 
@@ -174,7 +247,7 @@ describe('merchant.balance', () => {
     const client = mockClient();
     const action = merchantBalanceGetAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/balance', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/balance', reqOpts);
   });
 
   it('transactions GETs with pagination', async () => {
@@ -190,7 +263,7 @@ describe('merchant.balance', () => {
     const client = mockClient();
     const action = merchantBalanceFeesConfigAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/fees/config', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/fees/config', reqOpts);
   });
 });
 
@@ -201,7 +274,7 @@ describe('merchant.supported-tokens.list', () => {
     const client = mockClient();
     const action = merchantSupportedTokensListAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/supported-tokens', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/supported-tokens', reqOpts);
   });
 });
 
@@ -212,7 +285,7 @@ describe('merchant.addresses', () => {
     const client = mockClient();
     const action = merchantAddressesListAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/addresses', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/addresses', reqOpts);
   });
 
   it('add POSTs to /merchant/v1/addresses', async () => {
@@ -227,14 +300,14 @@ describe('merchant.addresses', () => {
       address: '0x1111111111111111111111111111111111111111',
     };
     await action.execute(ctx, input);
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/addresses', input, undefined);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/addresses', input, reqOpts);
   });
 
   it('remove DELETEs /merchant/v1/addresses/:chain_id/:symbol', async () => {
     const client = mockClient();
     const action = merchantAddressesRemoveAction(client);
     await action.execute(ctx, { chain_id: 1, symbol: 'USDC' });
-    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/addresses/1/USDC', undefined);
+    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/addresses/1/USDC', reqOpts);
   });
 });
 
@@ -245,7 +318,7 @@ describe('merchant.callback-contracts', () => {
     const client = mockClient();
     const action = merchantCallbackContractsListAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/callback-contracts', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/callback-contracts', reqOpts);
   });
 
   it('submit POSTs callback contract for review', async () => {
@@ -262,21 +335,21 @@ describe('merchant.callback-contracts', () => {
       eip712_version: '1',
     };
     await action.execute(ctx, input);
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/callback-contracts', input, undefined);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/callback-contracts', input, reqOpts);
   });
 
   it('remove DELETEs /merchant/v1/callback-contracts/:chain_id', async () => {
     const client = mockClient();
     const action = merchantCallbackContractsRemoveAction(client);
     await action.execute(ctx, { chain_id: 1 });
-    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/callback-contracts/1', undefined);
+    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/callback-contracts/1', reqOpts);
   });
 
   it('cancel-submission DELETEs /merchant/v1/callback-contracts/submissions/:id', async () => {
     const client = mockClient();
     const action = merchantCallbackContractsCancelSubmissionAction(client);
     await action.execute(ctx, { submission_id: 'sub-uuid' });
-    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/callback-contracts/submissions/sub-uuid', undefined);
+    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/callback-contracts/submissions/sub-uuid', reqOpts);
   });
 });
 
@@ -287,7 +360,7 @@ describe('merchant.api-keys', () => {
     const client = mockClient();
     const action = merchantApiKeysGetAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/api-keys', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/api-keys', reqOpts);
   });
 
   it('rotate POSTs /merchant/v1/api-keys/rotate', async () => {
@@ -295,7 +368,7 @@ describe('merchant.api-keys', () => {
     const action = merchantApiKeysRotateAction(client);
     expect(action.riskLevel).toBe('high');
     await action.execute(ctx, {});
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/api-keys/rotate', undefined, undefined);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/api-keys/rotate', undefined, reqOpts);
   });
 });
 
@@ -306,7 +379,7 @@ describe('merchant.webhooks', () => {
     const client = mockClient();
     const action = merchantWebhooksListAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/webhooks', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/webhooks', reqOpts);
   });
 
   it('create POSTs to /merchant/v1/webhooks', async () => {
@@ -314,21 +387,21 @@ describe('merchant.webhooks', () => {
     const action = merchantWebhooksCreateAction(client);
     const input = { url: 'https://example.com/hook', events: ['order.invoiced'] };
     await action.execute(ctx, input);
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/webhooks', input, undefined);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/webhooks', input, reqOpts);
   });
 
   it('update PUTs /merchant/v1/webhooks/:id', async () => {
     const client = mockClient();
     const action = merchantWebhooksUpdateAction(client);
     await action.execute(ctx, { webhook_id: 'wh-uuid', enabled: false });
-    expect(client.put).toHaveBeenCalledWith('/merchant/v1/webhooks/wh-uuid', { enabled: false }, undefined);
+    expect(client.put).toHaveBeenCalledWith('/merchant/v1/webhooks/wh-uuid', { enabled: false }, reqOpts);
   });
 
   it('delete DELETEs /merchant/v1/webhooks/:id', async () => {
     const client = mockClient();
     const action = merchantWebhooksDeleteAction(client);
     await action.execute(ctx, { webhook_id: 'wh-uuid' });
-    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/webhooks/wh-uuid', undefined);
+    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/webhooks/wh-uuid', reqOpts);
   });
 });
 
@@ -339,21 +412,21 @@ describe('merchant.invite-codes', () => {
     const client = mockClient();
     const action = merchantInviteCodesListAction(client);
     await action.execute(ctx, {});
-    expect(client.get).toHaveBeenCalledWith('/merchant/v1/invite-codes', undefined);
+    expect(client.get).toHaveBeenCalledWith('/merchant/v1/invite-codes', reqOpts);
   });
 
   it('create POSTs to /merchant/v1/invite-codes', async () => {
     const client = mockClient();
     const action = merchantInviteCodesCreateAction(client);
     await action.execute(ctx, { expires_in_hours: 48 });
-    expect(client.post).toHaveBeenCalledWith('/merchant/v1/invite-codes', { expires_in_hours: 48 }, undefined);
+    expect(client.post).toHaveBeenCalledWith('/merchant/v1/invite-codes', { expires_in_hours: 48 }, reqOpts);
   });
 
   it('revoke DELETEs /merchant/v1/invite-codes/:id', async () => {
     const client = mockClient();
     const action = merchantInviteCodesRevokeAction(client);
     await action.execute(ctx, { code_id: 'code-uuid' });
-    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/invite-codes/code-uuid', undefined);
+    expect(client.delete).toHaveBeenCalledWith('/merchant/v1/invite-codes/code-uuid', reqOpts);
   });
 });
 
@@ -385,6 +458,20 @@ describe('HttpMerchantPortalClient', () => {
     const { HttpMerchantPortalClient } = await import('../../plugins/x402-merchant/adapters/http-client');
     const client = new HttpMerchantPortalClient('http://localhost:8080', { accessToken: 'initial' });
     expect(client.getAccessToken()).toBe('initial');
+  });
+
+  it('withAccessToken returns an independent clone', async () => {
+    const { HttpMerchantPortalClient } = await import('../../plugins/x402-merchant/adapters/http-client');
+    const parent = new HttpMerchantPortalClient('http://localhost:8080', { accessToken: 'parent-tok' });
+    const child = parent.withAccessToken('child-tok');
+
+    expect(child.getAccessToken()).toBe('child-tok');
+    expect(parent.getAccessToken()).toBe('parent-tok');
+
+    // Mutating child does not affect parent
+    child.setAccessToken('updated');
+    expect(child.getAccessToken()).toBe('updated');
+    expect(parent.getAccessToken()).toBe('parent-tok');
   });
 });
 

@@ -12,17 +12,14 @@ export function merchantAuthLoginAction(
 ): ActionDefinition {
   return {
     name: 'goat.x402.merchant.auth.login',
-    description: 'Login to x402 merchant portal and obtain access/refresh tokens',
+    description: 'Login to x402 merchant portal and obtain access/refresh tokens. Use the returned access_token in subsequent action calls.',
     riskLevel: 'medium',
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    sensitiveOutputFields: ['access_token', 'refresh_token'],
     async execute(ctx, input) {
-      const result = await client.post('/merchant/v1/auth/login', input, ctx.signal);
-      if (result.access_token) {
-        client.setAccessToken(result.access_token);
-      }
-      return result;
+      return client.post('/merchant/v1/auth/login', input, { signal: ctx.signal });
     },
   };
 }

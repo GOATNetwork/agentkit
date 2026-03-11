@@ -15,7 +15,7 @@ export function merchantInviteCodesListAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/invite-codes', ctx.signal);
+      return client.get('/merchant/v1/invite-codes', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

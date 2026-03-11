@@ -15,7 +15,7 @@ export function merchantWebhooksListAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/webhooks', ctx.signal);
+      return client.get('/merchant/v1/webhooks', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

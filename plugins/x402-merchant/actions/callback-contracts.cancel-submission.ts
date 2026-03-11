@@ -19,7 +19,7 @@ export function merchantCallbackContractsCancelSubmissionAction(
     async execute(ctx, input: any) {
       return client.delete(
         `/merchant/v1/callback-contracts/submissions/${encodeURIComponent(input.submission_id)}`,
-        ctx.signal,
+        { signal: ctx.signal, accessToken: ctx.accessToken },
       );
     },
   };

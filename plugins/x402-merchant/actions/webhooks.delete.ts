@@ -19,7 +19,7 @@ export function merchantWebhooksDeleteAction(
     async execute(ctx, input: any) {
       return client.delete(
         `/merchant/v1/webhooks/${encodeURIComponent(input.webhook_id)}`,
-        ctx.signal,
+        { signal: ctx.signal, accessToken: ctx.accessToken },
       );
     },
   };

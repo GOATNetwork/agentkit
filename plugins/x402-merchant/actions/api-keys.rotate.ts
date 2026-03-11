@@ -15,7 +15,7 @@ export function merchantApiKeysRotateAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.post('/merchant/v1/api-keys/rotate', undefined, ctx.signal);
+      return client.post('/merchant/v1/api-keys/rotate', undefined, { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

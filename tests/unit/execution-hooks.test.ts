@@ -120,6 +120,41 @@ describe('ExecutionHooks', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('redacts sensitiveOutputFields in onActionSuccess hook', async () => {
+    const onActionSuccess = vi.fn();
+    const runtime = makeRuntime({ onActionSuccess });
+    const action = makeAction({
+      execute: vi.fn().mockResolvedValue({ access_token: 'secret', refresh_token: 'secret2', user_id: 'u1' }),
+      sensitiveOutputFields: ['access_token', 'refresh_token'],
+    });
+
+    const result = await runtime.run(action, ctx, {});
+
+    // Caller gets real values
+    expect(result.ok).toBe(true);
+    expect((result.output as any).access_token).toBe('secret');
+    expect((result.output as any).refresh_token).toBe('secret2');
+
+    // Hook gets redacted values
+    const hookOutput = onActionSuccess.mock.calls[0][0].output as Record<string, unknown>;
+    expect(hookOutput.access_token).toBe('[REDACTED]');
+    expect(hookOutput.refresh_token).toBe('[REDACTED]');
+    expect(hookOutput.user_id).toBe('u1');
+  });
+
+  it('does not redact when sensitiveOutputFields is empty or absent', async () => {
+    const onActionSuccess = vi.fn();
+    const runtime = makeRuntime({ onActionSuccess });
+    const action = makeAction({
+      execute: vi.fn().mockResolvedValue({ access_token: 'visible' }),
+    });
+
+    await runtime.run(action, ctx, {});
+
+    const hookOutput = onActionSuccess.mock.calls[0][0].output as Record<string, unknown>;
+    expect(hookOutput.access_token).toBe('visible');
+  });
+
   it('calls onActionStart multiple times on retries', async () => {
     const onActionStart = vi.fn();
     const runtime = makeRuntime({ onActionStart });

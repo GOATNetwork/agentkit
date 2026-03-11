@@ -23,7 +23,7 @@ export function merchantCallbackContractsSubmitAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
-      return client.post('/merchant/v1/callback-contracts', input, ctx.signal);
+      return client.post('/merchant/v1/callback-contracts', input, { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

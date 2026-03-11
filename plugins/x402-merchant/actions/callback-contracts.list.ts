@@ -15,7 +15,7 @@ export function merchantCallbackContractsListAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/callback-contracts', ctx.signal);
+      return client.get('/merchant/v1/callback-contracts', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

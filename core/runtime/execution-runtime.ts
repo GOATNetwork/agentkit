@@ -8,6 +8,16 @@ import { InMemoryIdempotencyStore, type IdempotencyStore } from './idempotency/s
 import { NoopRuntimeMetrics, type RuntimeMetrics } from '../metrics/metrics';
 import type { ExecutionHooks } from './execution-hooks';
 
+/** Replace values of named fields with '[REDACTED]' in a shallow copy. */
+function redactFields(obj: unknown, fields: readonly string[]): unknown {
+  if (obj == null || typeof obj !== 'object' || !fields.length) return obj;
+  const copy = { ...(obj as Record<string, unknown>) };
+  for (const f of fields) {
+    if (f in copy) copy[f] = '[REDACTED]';
+  }
+  return copy;
+}
+
 /** Error codes that should NOT be retried — they will fail identically on retry. */
 const NON_RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set([
   ErrorCodes.INVALID_INPUT,
@@ -208,7 +218,9 @@ export class ExecutionRuntime {
           traceId,
           action: action.name,
           attempt,
-          output,
+          output: action.sensitiveOutputFields?.length
+            ? redactFields(output, action.sensitiveOutputFields)
+            : output,
           durationMs: Date.now() - startedAt,
           timestamp: Date.now(),
         });

@@ -8,6 +8,8 @@ export interface ActionContext {
   caller?: string;
   now: number;
   signal?: AbortSignal;
+  /** Per-request bearer token for authenticated actions. Not included in hook events or logs. */
+  accessToken?: string;
 }
 
 export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
@@ -20,5 +22,7 @@ export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
   outputSchema?: Record<string, unknown>;
   zodInputSchema?: ZodTypeAny;
   zodOutputSchema?: ZodTypeAny;
+  /** Field names to redact from output before passing to execution hooks (e.g. tokens, secrets). */
+  sensitiveOutputFields?: string[];
   execute: (ctx: ActionContext, input: TInput) => Promise<TOutput>;
 }

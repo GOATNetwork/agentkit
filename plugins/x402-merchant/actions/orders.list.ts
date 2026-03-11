@@ -28,7 +28,7 @@ export function merchantOrdersListAction(
         if (v != null) params.set(k, String(v));
       }
       const qs = params.toString();
-      return client.get(`/merchant/v1/orders${qs ? `?${qs}` : ''}`, ctx.signal);
+      return client.get(`/merchant/v1/orders${qs ? `?${qs}` : ''}`, { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

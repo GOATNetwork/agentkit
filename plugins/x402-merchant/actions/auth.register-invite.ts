@@ -13,17 +13,14 @@ export function merchantAuthRegisterInviteAction(
 ): ActionDefinition {
   return {
     name: 'goat.x402.merchant.auth.register-invite',
-    description: 'Register on x402 merchant portal using an invite code (auto-approved)',
+    description: 'Register on x402 merchant portal using an invite code (auto-approved). Use the returned access_token in subsequent action calls.',
     riskLevel: 'medium',
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    sensitiveOutputFields: ['access_token', 'refresh_token'],
     async execute(ctx, input) {
-      const result = await client.post('/merchant/v1/auth/register/invite', input, ctx.signal);
-      if (result.access_token) {
-        client.setAccessToken(result.access_token);
-      }
-      return result;
+      return client.post('/merchant/v1/auth/register/invite', input, { signal: ctx.signal });
     },
   };
 }

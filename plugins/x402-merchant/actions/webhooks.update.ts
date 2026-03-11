@@ -24,7 +24,7 @@ export function merchantWebhooksUpdateAction(
       return client.put(
         `/merchant/v1/webhooks/${encodeURIComponent(webhook_id)}`,
         body,
-        ctx.signal,
+        { signal: ctx.signal, accessToken: ctx.accessToken },
       );
     },
   };

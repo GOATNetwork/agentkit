@@ -15,7 +15,7 @@ export function merchantBalanceFeesConfigAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/fees/config', ctx.signal);
+      return client.get('/merchant/v1/fees/config', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

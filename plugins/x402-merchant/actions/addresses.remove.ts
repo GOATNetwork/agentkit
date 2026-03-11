@@ -20,7 +20,7 @@ export function merchantAddressesRemoveAction(
     async execute(ctx, input: any) {
       return client.delete(
         `/merchant/v1/addresses/${input.chain_id}/${encodeURIComponent(input.symbol)}`,
-        ctx.signal,
+        { signal: ctx.signal, accessToken: ctx.accessToken },
       );
     },
   };

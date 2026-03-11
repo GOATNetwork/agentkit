@@ -15,7 +15,7 @@ export function merchantProfileGetAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/profile', ctx.signal);
+      return client.get('/merchant/v1/profile', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

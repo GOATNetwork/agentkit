@@ -11,17 +11,14 @@ export function merchantAuthRefreshAction(
 ): ActionDefinition {
   return {
     name: 'goat.x402.merchant.auth.refresh',
-    description: 'Refresh x402 merchant portal access token using a refresh token',
+    description: 'Refresh x402 merchant portal access token using a refresh token. Use the returned access_token in subsequent action calls.',
     riskLevel: 'low',
     requiresConfirmation: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    sensitiveOutputFields: ['access_token', 'refresh_token'],
     async execute(ctx, input) {
-      const result = await client.post('/merchant/v1/auth/refresh', input, ctx.signal);
-      if (result.access_token) {
-        client.setAccessToken(result.access_token);
-      }
-      return result;
+      return client.post('/merchant/v1/auth/refresh', input, { signal: ctx.signal });
     },
   };
 }

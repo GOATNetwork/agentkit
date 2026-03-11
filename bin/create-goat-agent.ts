@@ -44,6 +44,7 @@ function packageJson(opts: GenerateOptions): string {
         zod: '^3.24.2',
       },
       devDependencies: {
+        '@types/node': '^22.15.0',
         tsx: '^4.20.5',
         typescript: '^5.9.2',
         vitest: '^3.2.4',
@@ -74,16 +75,21 @@ function tsconfig(): string {
 }
 
 function envExample(opts: GenerateOptions): string {
-  return `# Goat Network RPC
-GOAT_MAINNET_RPC_URL=https://rpc.goat.network
-GOAT_TESTNET_RPC_URL=https://rpc.testnet.goat.network
-
-# Agentkit
-AGENTKIT_IDEMPOTENCY_MODE=memory
-AGENTKIT_METRICS_PORT=9464
-
-# Network: ${opts.network}
-`;
+  const plugins = PRESET_PLUGINS[opts.preset];
+  const lines = [
+    '# Goat Network RPC',
+    'GOAT_MAINNET_RPC_URL=https://rpc.goat.network',
+    'GOAT_TESTNET_RPC_URL=https://rpc.testnet.goat.network',
+    '',
+    '# Agentkit',
+    'AGENTKIT_IDEMPOTENCY_MODE=memory',
+    'AGENTKIT_METRICS_PORT=9464',
+  ];
+  if (plugins.includes('x402-merchant')) {
+    lines.push('', '# x402 Merchant Portal', 'MERCHANT_PORTAL_BASE_URL=http://localhost:8080');
+  }
+  lines.push('', `# Network: ${opts.network}`, '');
+  return lines.join('\n');
 }
 
 function readme(opts: GenerateOptions): string {
@@ -269,7 +275,8 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       "import { HttpMerchantPortalClient, merchantAuthLoginAction, merchantAuthRegisterAction, merchantAuthRegisterInviteAction, merchantAuthRefreshAction, merchantDashboardStatsAction, merchantProfileGetAction, merchantProfileUpdateAction, merchantOrdersListAction, merchantOrdersGetAction, merchantBalanceGetAction, merchantBalanceTransactionsAction, merchantBalanceFeesConfigAction, merchantSupportedTokensListAction, merchantAddressesListAction, merchantAddressesAddAction, merchantAddressesRemoveAction, merchantCallbackContractsListAction, merchantCallbackContractsSubmitAction, merchantCallbackContractsRemoveAction, merchantCallbackContractsCancelSubmissionAction, merchantApiKeysGetAction, merchantApiKeysRotateAction, merchantWebhooksListAction, merchantWebhooksCreateAction, merchantWebhooksUpdateAction, merchantWebhooksDeleteAction, merchantInviteCodesListAction, merchantInviteCodesCreateAction, merchantInviteCodesRevokeAction, merchantAuditLogsListAction } from 'agentkit/plugins';",
     ],
     registrations: [
-      "const merchantClient = new HttpMerchantPortalClient(process.env.MERCHANT_API_BASE_URL ?? 'http://localhost:8080');",
+      "// Auth actions return { access_token }; pass it via ActionContext.accessToken in subsequent calls.",
+      "const merchantClient = new HttpMerchantPortalClient(process.env.MERCHANT_PORTAL_BASE_URL ?? 'http://localhost:8080');",
       'provider.register(merchantAuthRegisterAction(merchantClient));',
       'provider.register(merchantAuthRegisterInviteAction(merchantClient));',
       'provider.register(merchantAuthLoginAction(merchantClient));',

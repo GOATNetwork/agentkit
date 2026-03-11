@@ -15,7 +15,7 @@ export function merchantSupportedTokensListAction(
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx) {
-      return client.get('/merchant/v1/supported-tokens', ctx.signal);
+      return client.get('/merchant/v1/supported-tokens', { signal: ctx.signal, accessToken: ctx.accessToken });
     },
   };
 }

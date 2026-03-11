@@ -1,6 +1,6 @@
 import { ErrorCodes } from '../../../core/errors/error-codes';
 import { AgentkitRuntimeError } from '../../../core/errors/error';
-import type { MerchantPortalClient } from './types';
+import type { MerchantPortalClient, RequestOptions } from './types';
 
 export interface HttpMerchantPortalClientOptions {
   /** Initial access token (optional; can also be set via setAccessToken). */
@@ -48,6 +48,19 @@ export class HttpMerchantPortalClient implements MerchantPortalClient {
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
+  /**
+   * Create a session-scoped clone of this client with the given access token.
+   * The clone shares the same base URL and config but has independent token state,
+   * which avoids cross-session token leakage in multi-tenant deployments.
+   */
+  withAccessToken(token: string): HttpMerchantPortalClient {
+    return new HttpMerchantPortalClient(this.baseUrl, {
+      accessToken: token,
+      headers: { ...this.extraHeaders },
+      timeoutMs: this.timeoutMs,
+    });
+  }
+
   setAccessToken(token: string): void {
     this.accessToken = token;
   }
@@ -56,10 +69,11 @@ export class HttpMerchantPortalClient implements MerchantPortalClient {
     return this.accessToken;
   }
 
-  private buildHeaders(hasBody: boolean): Record<string, string> {
+  private buildHeaders(hasBody: boolean, tokenOverride?: string): Record<string, string> {
     const h: Record<string, string> = { ...this.extraHeaders };
     if (hasBody) h['content-type'] = 'application/json';
-    if (this.accessToken) h['authorization'] = `Bearer ${this.accessToken}`;
+    const token = tokenOverride ?? this.accessToken;
+    if (token) h['authorization'] = `Bearer ${token}`;
     return h;
   }
 
@@ -72,44 +86,44 @@ export class HttpMerchantPortalClient implements MerchantPortalClient {
     return fetch(url, { ...init, signal }).finally(() => clearTimeout(timer));
   }
 
-  async get<T = any>(path: string, signal?: AbortSignal): Promise<T> {
+  async get<T = any>(path: string, options?: RequestOptions): Promise<T> {
     const url = joinUrl(this.baseUrl, path);
-    const resp = await this.fetchWithTimeout(url, { headers: this.buildHeaders(false) }, signal);
+    const resp = await this.fetchWithTimeout(url, { headers: this.buildHeaders(false, options?.accessToken) }, options?.signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'GET', path);
     return data as T;
   }
 
-  async post<T = any>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  async post<T = any>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
     const url = joinUrl(this.baseUrl, path);
     const resp = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: this.buildHeaders(body != null),
+      headers: this.buildHeaders(body != null, options?.accessToken),
       body: body != null ? JSON.stringify(body) : undefined,
-    }, signal);
+    }, options?.signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'POST', path);
     return data as T;
   }
 
-  async put<T = any>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  async put<T = any>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
     const url = joinUrl(this.baseUrl, path);
     const resp = await this.fetchWithTimeout(url, {
       method: 'PUT',
-      headers: this.buildHeaders(body != null),
+      headers: this.buildHeaders(body != null, options?.accessToken),
       body: body != null ? JSON.stringify(body) : undefined,
-    }, signal);
+    }, options?.signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'PUT', path);
     return data as T;
   }
 
-  async delete<T = any>(path: string, signal?: AbortSignal): Promise<T> {
+  async delete<T = any>(path: string, options?: RequestOptions): Promise<T> {
     const url = joinUrl(this.baseUrl, path);
     const resp = await this.fetchWithTimeout(url, {
       method: 'DELETE',
-      headers: this.buildHeaders(false),
-    }, signal);
+      headers: this.buildHeaders(false, options?.accessToken),
+    }, options?.signal);
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'DELETE', path);
     return data as T;

@@ -19,7 +19,7 @@ export function merchantCallbackContractsRemoveAction(
     async execute(ctx, input: any) {
       return client.delete(
         `/merchant/v1/callback-contracts/${input.chain_id}`,
-        ctx.signal,
+        { signal: ctx.signal, accessToken: ctx.accessToken },
       );
     },
   };

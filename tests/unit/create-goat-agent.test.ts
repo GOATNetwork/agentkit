@@ -27,6 +27,7 @@ describe('generateProject', () => {
     expect(pkg.name).toBe('my-agent');
     expect(pkg.dependencies).toHaveProperty('agentkit');
     expect(pkg.dependencies).toHaveProperty('zod');
+    expect(pkg.devDependencies).toHaveProperty('@types/node');
     expect(pkg.devDependencies).toHaveProperty('tsx');
     expect(pkg.devDependencies).toHaveProperty('typescript');
   });
@@ -120,6 +121,21 @@ describe('generateProject', () => {
         expect(exports, `'${originalName}' not exported from agentkit/${module}`).toHaveProperty(originalName);
       }
     }
+  });
+
+  it('full preset uses MERCHANT_PORTAL_BASE_URL (not MERCHANT_API_BASE_URL)', () => {
+    const files = generateProject({ projectName: 'a', preset: 'full', network: 'goat-mainnet' });
+    const src = files['src/index.ts'];
+    const env = files['.env.example'];
+
+    expect(src).toContain('MERCHANT_PORTAL_BASE_URL');
+    expect(src).not.toContain('MERCHANT_API_BASE_URL');
+    expect(env).toContain('MERCHANT_PORTAL_BASE_URL');
+  });
+
+  it('minimal preset .env.example omits merchant portal config', () => {
+    const files = generateProject({ projectName: 'a', preset: 'minimal', network: 'goat-testnet' });
+    expect(files['.env.example']).not.toContain('MERCHANT_PORTAL_BASE_URL');
   });
 
   it('tsconfig uses Bundler module resolution', () => {

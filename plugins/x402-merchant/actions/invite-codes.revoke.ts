@@ -19,7 +19,7 @@ export function merchantInviteCodesRevokeAction(
     async execute(ctx, input: any) {
       return client.delete(
         `/merchant/v1/invite-codes/${encodeURIComponent(input.code_id)}`,
-        ctx.signal,
+        { signal: ctx.signal, accessToken: ctx.accessToken },
       );
     },
   };
