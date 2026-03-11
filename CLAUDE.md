@@ -74,7 +74,7 @@ External integrations use adapter interfaces with swappable implementations:
 
 All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`, `POLICY_BLOCKED`, `ACTION_NOT_FOUND`, `ADAPTER_REQUEST_FAILED`, `WALLET_SIGN_FAILED`, `WALLET_TRANSFER_FAILED`, `TIMEOUT`, `INTERNAL_ERROR`.
 
-### Plugin Inventory (67 actions across 12 plugins)
+### Plugin Inventory (97 actions across 13 plugins)
 
 | Plugin | Directory | Actions | Notes |
 |--------|-----------|---------|-------|
@@ -90,6 +90,7 @@ All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`
 | **DEX** | `plugins/dex/` | 7 — `quote`, `swap`, `get_pool`, `add_liquidity`, `remove_liquidity`, `collect_fees`, `get_position` | OKU (Uniswap V3) on goat-mainnet; `swap`/`add_liquidity` are payable |
 | **LayerZero** | `plugins/layerzero/` | 3 — `quote_send`, `send`, `quote_oft` | LayerZero V2 OFT cross-chain transfers (EID 30361); `send` is payable |
 | **ERC-8004** | `plugins/erc8004/` | 9 — `register_agent`, `set_agent_uri`, `get_metadata`, `set_metadata`, `get_agent_wallet`, `give_feedback`, `revoke_feedback`, `get_reputation`, `get_clients` | Trustless Agents (Identity + Reputation registries); CREATE2-deployed |
+| **x402-Merchant** | `plugins/x402-merchant/` | 30 — Auth (`register`, `register-invite`, `login`, `refresh`), Dashboard (`stats`), Profile (`get`, `update`), Orders (`list`, `get`), Balance (`get`, `transactions`, `fees-config`), Supported Tokens (`list`), Addresses (`list`, `add`, `remove`), Callback Contracts (`list`, `submit`, `remove`, `cancel-submission`), API Keys (`get`, `rotate`), Webhooks (`list`, `create`, `update`, `delete`), Invite Codes (`list`, `create`, `revoke`), Audit Logs (`list`) | x402 Merchant Portal management via `MerchantPortalClient` HTTP adapter |
 
 ### Predeployed Contract Addresses
 
@@ -139,7 +140,8 @@ See `.env.example` for full list. Key variables:
 - `AGENTKIT_IDEMPOTENCY_MODE` — `memory` (default) or `redis`
 - `AGENTKIT_REDIS_URL` — Redis connection when mode=redis
 - `AGENTKIT_METRICS_PORT` — Prometheus port (default 9464)
-- `MERCHANT_API_BASE_URL` / `MERCHANT_API_KEY` — Merchant gateway config
+- `MERCHANT_API_BASE_URL` / `MERCHANT_API_KEY` — Merchant gateway config (x402 payment flow)
+- `MERCHANT_PORTAL_BASE_URL` — x402 Merchant Portal API base URL (default: `http://localhost:8080`)
 - `GOAT_MAINNET_RPC_URL` / `GOAT_TESTNET_RPC_URL` — Goat chain RPC endpoints
 
 ### CLI Scaffolding (`create-goat-agent`)

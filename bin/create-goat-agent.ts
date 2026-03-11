@@ -14,7 +14,7 @@ export type Preset = 'minimal' | 'defi' | 'full';
 const PRESET_PLUGINS: Record<Preset, string[]> = {
   minimal: ['wallet'],
   defi: ['wallet', 'wgbtc', 'bridge', 'bitcoin'],
-  full: ['wallet', 'wgbtc', 'bridge', 'bitcoin', 'x402', 'bitvm2', 'erc721', 'faucet', 'goat-token', 'dex', 'layerzero', 'erc8004'],
+  full: ['wallet', 'wgbtc', 'bridge', 'bitcoin', 'x402', 'x402-merchant', 'bitvm2', 'erc721', 'faucet', 'goat-token', 'dex', 'layerzero', 'erc8004'],
 };
 
 export interface GenerateOptions {
@@ -262,6 +262,44 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
       'provider.register(oftQuoteSendAction(wallet));',
       'provider.register(oftSendAction(wallet));',
       'provider.register(oftQuoteOftAction(wallet));',
+    ],
+  },
+  'x402-merchant': {
+    imports: [
+      "import { HttpMerchantPortalClient, merchantAuthLoginAction, merchantAuthRegisterAction, merchantAuthRegisterInviteAction, merchantAuthRefreshAction, merchantDashboardStatsAction, merchantProfileGetAction, merchantProfileUpdateAction, merchantOrdersListAction, merchantOrdersGetAction, merchantBalanceGetAction, merchantBalanceTransactionsAction, merchantBalanceFeesConfigAction, merchantSupportedTokensListAction, merchantAddressesListAction, merchantAddressesAddAction, merchantAddressesRemoveAction, merchantCallbackContractsListAction, merchantCallbackContractsSubmitAction, merchantCallbackContractsRemoveAction, merchantCallbackContractsCancelSubmissionAction, merchantApiKeysGetAction, merchantApiKeysRotateAction, merchantWebhooksListAction, merchantWebhooksCreateAction, merchantWebhooksUpdateAction, merchantWebhooksDeleteAction, merchantInviteCodesListAction, merchantInviteCodesCreateAction, merchantInviteCodesRevokeAction, merchantAuditLogsListAction } from 'agentkit/plugins';",
+    ],
+    registrations: [
+      "const merchantClient = new HttpMerchantPortalClient(process.env.MERCHANT_API_BASE_URL ?? 'http://localhost:8080');",
+      'provider.register(merchantAuthRegisterAction(merchantClient));',
+      'provider.register(merchantAuthRegisterInviteAction(merchantClient));',
+      'provider.register(merchantAuthLoginAction(merchantClient));',
+      'provider.register(merchantAuthRefreshAction(merchantClient));',
+      'provider.register(merchantDashboardStatsAction(merchantClient));',
+      'provider.register(merchantProfileGetAction(merchantClient));',
+      'provider.register(merchantProfileUpdateAction(merchantClient));',
+      'provider.register(merchantOrdersListAction(merchantClient));',
+      'provider.register(merchantOrdersGetAction(merchantClient));',
+      'provider.register(merchantBalanceGetAction(merchantClient));',
+      'provider.register(merchantBalanceTransactionsAction(merchantClient));',
+      'provider.register(merchantBalanceFeesConfigAction(merchantClient));',
+      'provider.register(merchantSupportedTokensListAction(merchantClient));',
+      'provider.register(merchantAddressesListAction(merchantClient));',
+      'provider.register(merchantAddressesAddAction(merchantClient));',
+      'provider.register(merchantAddressesRemoveAction(merchantClient));',
+      'provider.register(merchantCallbackContractsListAction(merchantClient));',
+      'provider.register(merchantCallbackContractsSubmitAction(merchantClient));',
+      'provider.register(merchantCallbackContractsRemoveAction(merchantClient));',
+      'provider.register(merchantCallbackContractsCancelSubmissionAction(merchantClient));',
+      'provider.register(merchantApiKeysGetAction(merchantClient));',
+      'provider.register(merchantApiKeysRotateAction(merchantClient));',
+      'provider.register(merchantWebhooksListAction(merchantClient));',
+      'provider.register(merchantWebhooksCreateAction(merchantClient));',
+      'provider.register(merchantWebhooksUpdateAction(merchantClient));',
+      'provider.register(merchantWebhooksDeleteAction(merchantClient));',
+      'provider.register(merchantInviteCodesListAction(merchantClient));',
+      'provider.register(merchantInviteCodesCreateAction(merchantClient));',
+      'provider.register(merchantInviteCodesRevokeAction(merchantClient));',
+      'provider.register(merchantAuditLogsListAction(merchantClient));',
     ],
   },
   erc8004: {

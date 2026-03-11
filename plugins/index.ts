@@ -24,3 +24,4 @@ export * from './bitcoin/index';
 export * from './dex/index';
 export * from './layerzero/index';
 export * from './erc8004/index';
+export * from './x402-merchant/index';
