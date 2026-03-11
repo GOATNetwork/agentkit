@@ -1,83 +1,83 @@
 # agentkit
 
-用于集成 Goat Network 的技能与应用 SDK。
+Skills and application SDK for integrating with Goat Network.
 
-## 目录结构
+## Directory Structure
 
-- `core/`：运行时引擎、策略引擎、错误类型、指标、日志
-- `plugins/`：功能模块（x402、wallet、bitvm2、erc721、wgbtc、faucet、goat-token、bridge、bitcoin、dex、layerzero）
-- `adapters/`：AI 框架集成（OpenAI、LangChain、MCP、Vercel AI SDK、OpenAI Agents SDK）
-- `providers/`：Action 注册表与工具清单生成（Zod → JSON Schema）
-- `networks/`：Goat 链适配层
-- `examples/`：示例代码与最小可运行样例
-- `docs/`：设计文档与使用说明
-- `bin/`：CLI 脚手架（`create-goat-agent`）
+- `core/`: Runtime engine, policy engine, error types, metrics, logging
+- `plugins/`: Feature modules (x402, wallet, bitvm2, erc721, wgbtc, faucet, goat-token, bridge, bitcoin, dex, layerzero)
+- `adapters/`: AI framework integrations (OpenAI, LangChain, MCP, Vercel AI SDK, OpenAI Agents SDK)
+- `providers/`: Action registry and tool manifest generation (Zod → JSON Schema)
+- `networks/`: Goat chain adapter layer
+- `examples/`: Example code and minimal runnable samples
+- `docs/`: Design documents and usage guides
+- `bin/`: CLI scaffolding (`create-goat-agent`)
 
-## x402（Agent 作为支付方）
+## x402 (Agent as Payer)
 
-当前默认按“付款方模式”设计：
-- Agent 调用**商户包装后的 API**（`MerchantGatewayAdapter`），而不是直接调用 goatx402 merchant-core API。
-- Agent 本地通过 `PayerWalletAdapter` 处理签名/授权数据。
+The default design follows the "payer mode":
+- The agent calls **merchant-wrapped APIs** (`MerchantGatewayAdapter`) rather than calling the goatx402 merchant-core API directly.
+- The agent handles signing/authorization data locally via `PayerWalletAdapter`.
 
-默认提供：
-- `HttpMerchantGatewayAdapter`（对接商户 API，支持自定义路由）
-- `NoopPayerWalletAdapter`（本地开发占位）
+Default adapters provided:
+- `HttpMerchantGatewayAdapter` (connects to merchant API, supports custom routing)
+- `NoopPayerWalletAdapter` (local development placeholder)
 
-商户接口合同模板：
+Merchant API contract template:
 - `docs/x402-merchant-gateway.openapi.yaml`
 
-初始化示例：
+Initialization example:
 - `examples/x402-payment-flow/init-merchant-gateway.ts`
 
-EIP-712 完整签名流示例：
+EIP-712 full signing flow example:
 - `examples/x402-payment-flow/eip712-full-flow.ts`
-- 运行：`pnpm run example:x402-eip712`
+- Run: `pnpm run example:x402-eip712`
 
-错误码路径示例（INVALID_INPUT）：
+Error code path example (INVALID_INPUT):
 - `examples/minimal-agent/error-path.ts`
-- 运行：`pnpm run example:error-path`
+- Run: `pnpm run example:error-path`
 
-幂等存储初始化示例（memory/redis 可切换）：
+Idempotency store initialization example (switchable between memory/redis):
 - `examples/minimal-agent/runtime-with-store.ts`
-- 运行：`pnpm run example:runtime-store`
+- Run: `pnpm run example:runtime-store`
 
-Prometheus metrics 示例：
+Prometheus metrics example:
 - `examples/minimal-agent/metrics-prometheus.ts`
-- 运行：`pnpm run example:metrics`
-- 指标地址：`/metrics`（默认端口 `9464`）
-- 指标按 action 等标签导出（便于 Grafana 聚合）
+- Run: `pnpm run example:metrics`
+- Metrics endpoint: `/metrics` (default port `9464`)
+- Metrics are exported with labels such as action name (suitable for Grafana aggregation)
 
-支付方核心动作（当前）：
+Payer core actions (current):
 - `goat.x402.payment.create`
-- `goat.x402.payment.submitSignature`（callback 场景）
-- `goat.x402.payment.transfer`（钱包转账支付本体）
+- `goat.x402.payment.submitSignature` (callback scenario)
+- `goat.x402.payment.transfer` (wallet transfer payment itself)
 - `goat.x402.payment.status`
 - `goat.x402.payment.cancel`
 
-Base 对齐冲刺计划：
+Base parity sprint plan:
 - `docs/base-parity-sprint-plan-2026-02-28.md`
 
-商户联调 runbook：
+Merchant integration runbook:
 - `docs/merchant-integration-runbook.md`
 
-集成测试：
-- 运行：`pnpm run test:integration`
-- 覆盖：x402 主流程 + runtime 幂等
+Integration tests:
+- Run: `pnpm run test:integration`
+- Coverage: x402 main flow + runtime idempotency
 
-Redis 幂等集成测试（需要本地 Redis）：
-- 运行：`pnpm run test:redis`
-- 覆盖：RedisIdempotencyStore 全链路，包括 Lua compare-and-delete 原子释放
-- 前置条件：本地 Redis 可达（默认 `redis://127.0.0.1:6379`，可通过 `AGENTKIT_REDIS_URL` 覆盖）
-- 注意：`test:integration` 在无 Redis 时会自动跳过这些测试；`test:redis` 则要求 Redis 必须可用，否则直接报错
+Redis idempotency integration tests (requires local Redis):
+- Run: `pnpm run test:redis`
+- Coverage: Full RedisIdempotencyStore pipeline, including Lua compare-and-delete atomic release
+- Prerequisite: Local Redis reachable (default `redis://127.0.0.1:6379`, overridable via `AGENTKIT_REDIS_URL`)
+- Note: `test:integration` automatically skips these tests when Redis is unavailable; `test:redis` requires Redis to be available and will fail otherwise
 
-可选环境变量：
+Optional environment variables:
 - `GOAT_MAINNET_RPC_URL`
 - `GOAT_TESTNET_RPC_URL`
 
-> 兼容层里仍保留了 goatx402 merchant-core 直连方法，供联调或迁移使用。
+> The compatibility layer still retains direct goatx402 merchant-core methods for integration testing or migration purposes.
 
-## 后续建议
+## Next Steps
 
-1. 用真实商户凭证联调 `/api/v1/orders` / `status` / `calldata-signature`
-2. 对接 merchant callback 签名流（EIP-712）
-3. 为 plugins 和 adapters 统一接口定义
+1. End-to-end integration with real merchant credentials against `/api/v1/orders` / `status` / `calldata-signature`
+2. Integrate merchant callback signing flow (EIP-712)
+3. Unify interface definitions across plugins and adapters
