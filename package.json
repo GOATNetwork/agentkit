@@ -1,0 +1,80 @@
+{
+  "name": "agentkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "create-goat-agent": "./bin/create-goat-agent.ts"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "index.ts",
+    "core",
+    "plugins",
+    "adapters",
+    "providers",
+    "networks"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./core/index.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./plugins": {
+      "types": "./plugins/index.ts",
+      "default": "./dist/plugins/index.js"
+    },
+    "./adapters": {
+      "types": "./adapters/index.ts",
+      "default": "./dist/adapters/index.js"
+    },
+    "./providers": {
+      "types": "./providers/index.ts",
+      "default": "./dist/providers/index.js"
+    },
+    "./networks": {
+      "types": "./networks/index.ts",
+      "default": "./dist/networks/index.js"
+    }
+  },
+  "scripts": {
+    "example:minimal": "tsx examples/minimal-agent/index.ts",
+    "example:error-path": "tsx examples/minimal-agent/error-path.ts",
+    "example:runtime-store": "tsx examples/minimal-agent/runtime-with-store.ts",
+    "example:metrics": "tsx examples/minimal-agent/metrics-prometheus.ts",
+    "example:export-tools": "tsx examples/minimal-agent/export-tools.ts",
+    "example:x402-eip712": "tsx examples/x402-payment-flow/eip712-full-flow.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepublishOnly": "pnpm run build",
+    "test:unit": "vitest run tests/unit",
+    "test": "vitest run tests",
+    "test:integration": "vitest run tests/integration",
+    "test:redis": "node scripts/test-redis.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "ioredis": "^5.7.0",
+    "tsx": "^4.20.5",
+    "viem": "^2.46.3",
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.2.4"
+  }
+}
