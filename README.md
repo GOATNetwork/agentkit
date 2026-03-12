@@ -15,7 +15,7 @@ agentkit/
 ├── adapters/       # 5 AI framework adapters
 ├── providers/      # Action registry + tool manifest generation
 ├── networks/       # GOAT chain adapter layer (mainnet / testnet)
-├── bin/            # CLI scaffolding (create-goat-agent)
+├── packages/       # Independent packages (create-goat-agent CLI)
 ├── examples/       # Minimal runnable examples
 ├── tests/          # Unit + integration tests
 └── docs/           # Design documents
@@ -29,6 +29,63 @@ agentkit/
 | **Plugins** | Concrete implementations of on-chain operations (each plugin is a group of Actions) | `plugins/*/actions/*.ts` |
 | **Adapters** | Convert Actions into tool formats for each AI framework | `adapters/*/tools.ts` |
 | **Providers** | Action registration, discovery, and JSON Schema tool manifest generation | `providers/action-provider.ts` |
+
+---
+
+## Quick Start
+
+### Option 1: CLI Scaffolding (recommended)
+
+```bash
+npm create goat-agent
+# Follow prompts: project name → preset (minimal/defi/full) → network
+cd my-agent && pnpm start
+```
+
+### Option 2: Manual Installation
+
+```bash
+npm install @goatnetwork/agentkit
+```
+
+```typescript
+import { ActionProvider } from '@goatnetwork/agentkit/providers';
+import { PolicyEngine, ExecutionRuntime } from '@goatnetwork/agentkit/core';
+import { NoopWalletProvider } from '@goatnetwork/agentkit/core';
+import { walletBalanceAction, transferErc20Action, NoopWalletReadAdapter } from '@goatnetwork/agentkit/plugins';
+
+const wallet = new NoopWalletProvider(); // Replace with EvmWalletProvider or ViemWalletProvider for production
+
+const provider = new ActionProvider();
+provider.register(walletBalanceAction(new NoopWalletReadAdapter()));
+provider.register(transferErc20Action(wallet));
+
+const policy = new PolicyEngine({
+  allowedNetworks: ['goat-testnet'],
+  maxRiskWithoutConfirm: 'low',
+  writeEnabled: true,
+});
+
+const runtime = new ExecutionRuntime(policy, { maxRetries: 2, retryDelayMs: 200 });
+
+const result = await runtime.run(
+  provider.get('wallet.balance'),
+  { traceId: 'trace-1', network: 'goat-testnet', now: Date.now() },
+  { address: '0xabc...' },
+);
+
+console.log(result.ok ? result.output : result.error);
+```
+
+### Export to AI Frameworks
+
+```typescript
+provider.openAITools();        // OpenAI Function Calling
+provider.langChainToolDefs();  // LangChain Tools
+provider.mcpTools();           // Model Context Protocol
+provider.vercelAITools();      // Vercel AI SDK
+provider.openAIAgentsTools();  // OpenAI Agents SDK
+```
 
 ---
 
@@ -117,10 +174,10 @@ Execution pipeline: **Policy Gate → Schema Validation (Zod) → Idempotency �
 
 ### 5. CLI Scaffolding
 
-`create-goat-agent` offers three project templates:
-- **minimal** — bare-bones starter
-- **defi** — DeFi scenario (includes DEX + Bridge)
-- **full** — all features
+`npm create goat-agent` — interactive project generator with three presets:
+- **minimal** — wallet plugin only (10 actions)
+- **defi** — wallet + wgbtc + bridge + bitcoin (27 actions)
+- **full** — all 13 plugins (95 actions)
 
 ### 6. Dual Cross-Chain Channels
 

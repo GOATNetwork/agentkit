@@ -74,7 +74,7 @@ External integrations use adapter interfaces with swappable implementations:
 
 All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`, `POLICY_BLOCKED`, `ACTION_NOT_FOUND`, `ADAPTER_REQUEST_FAILED`, `WALLET_SIGN_FAILED`, `WALLET_TRANSFER_FAILED`, `TIMEOUT`, `INTERNAL_ERROR`.
 
-### Plugin Inventory (97 actions across 13 plugins)
+### Plugin Inventory (95 actions across 13 plugins)
 
 | Plugin | Directory | Actions | Notes |
 |--------|-----------|---------|-------|
@@ -146,9 +146,17 @@ See `.env.example` for full list. Key variables:
 
 ### CLI Scaffolding (`create-goat-agent`)
 
-`bin/create-goat-agent.ts` is an interactive CLI that scaffolds new agent projects. Three presets:
+`packages/create-goat-agent/` is an independent package (`create-goat-agent` on npm) that scaffolds new agent projects. Three presets:
 - **minimal** — wallet plugin only (10 actions)
-- **defi** — wallet + wgbtc + bridge + bitcoin
-- **full** — all 9 plugins (41 actions)
+- **defi** — wallet + wgbtc + bridge + bitcoin (27 actions)
+- **full** — all 13 plugins (95 actions)
 
-Run via `pnpm create-goat-agent` or `npx create-goat-agent`. The `generateProject()` function is exported for testing.
+**Published usage** (after `npm publish`): `npm create goat-agent`
+
+**Local dev usage** (within this repo):
+```bash
+pnpm --filter create-goat-agent run build
+node packages/create-goat-agent/dist/index.js
+```
+
+The `generateProject()` function is exported for testing and library reuse.

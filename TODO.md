@@ -61,7 +61,7 @@
 | 21 | **OpenAI Agents SDK** | ✅ (Python) | ✅ `toOpenAIAgentsTools` + `ActionProvider.openAIAgentsTools()` |
 | 22 | **Twitter / X** | 发推/回复/媒体上传 | ❌ |
 | 23 | **Farcaster** | 发 cast / 查 profile | ❌ |
-| 24 | **CLI 脚手架 (create-goat-agent)** | ✅ | ✅ `bin/create-goat-agent.ts`（minimal / defi / full 三种预设） |
+| 24 | **CLI 脚手架 (create-goat-agent)** | ✅ | ✅ `packages/create-goat-agent/`（独立 npm 包，minimal / defi / full 三种预设） |
 
 ## P4 — 钱包提供者多样性
 
