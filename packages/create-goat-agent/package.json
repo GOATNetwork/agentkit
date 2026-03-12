@@ -1,0 +1,34 @@
+{
+  "name": "create-goat-agent",
+  "version": "0.1.1",
+  "description": "CLI scaffolding tool for GOAT Network AI Agent projects",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "create-goat-agent": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "pnpm run clean && tsc",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.2"
+  },
+  "keywords": [
+    "goat-network",
+    "agentkit",
+    "ai-agent",
+    "scaffold",
+    "cli"
+  ]
+}
