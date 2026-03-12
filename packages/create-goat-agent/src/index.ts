@@ -1,8 +1,9 @@
-#!/usr/bin/env -S node --import tsx/esm
+#!/usr/bin/env node
 
 import * as readline from 'node:readline/promises';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
 /* ------------------------------------------------------------------ */
@@ -40,7 +41,7 @@ function packageJson(opts: GenerateOptions): string {
         test: 'vitest run',
       },
       dependencies: {
-        agentkit: 'file:..', // replace with registry path once published
+        '@goatnetwork/agentkit': '^0.1.0',
         zod: '^3.24.2',
       },
       devDependencies: {
@@ -111,9 +112,9 @@ function srcIndex(opts: GenerateOptions): string {
   const imports = pluginImports(plugins);
   const registrations = pluginRegistrations(plugins);
 
-  return `import { ActionProvider } from 'agentkit/providers';
-import { PolicyEngine, ExecutionRuntime } from 'agentkit/core';
-import { NoopWalletProvider } from 'agentkit/core';
+  return `import { ActionProvider } from '@goatnetwork/agentkit/providers';
+import { PolicyEngine, ExecutionRuntime } from '@goatnetwork/agentkit/core';
+import { NoopWalletProvider } from '@goatnetwork/agentkit/core';
 ${imports}
 
 // Replace NoopWalletProvider with a real provider (EvmWalletProvider or ViemWalletProvider) for production use.
@@ -147,7 +148,7 @@ interface PluginSnippet {
 const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   wallet: {
     imports: [
-      "import { walletBalanceAction, getDetailsAction, getAllowanceAction, contractReadAction, contractWriteAction, transferNativeAction, transferErc20Action, approveErc20Action, deployContractAction, resolveTokenAction, NoopWalletReadAdapter } from 'agentkit/plugins';",
+      "import { walletBalanceAction, getDetailsAction, getAllowanceAction, contractReadAction, contractWriteAction, transferNativeAction, transferErc20Action, approveErc20Action, deployContractAction, resolveTokenAction, NoopWalletReadAdapter } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(walletBalanceAction(new NoopWalletReadAdapter()));',
@@ -164,7 +165,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   wgbtc: {
     imports: [
-      "import { wgbtcWrapAction, wgbtcUnwrapAction, wgbtcBalanceAction } from 'agentkit/plugins';",
+      "import { wgbtcWrapAction, wgbtcUnwrapAction, wgbtcBalanceAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(wgbtcWrapAction(wallet));',
@@ -174,7 +175,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   bridge: {
     imports: [
-      "import { bridgeWithdrawAction as onchainBridgeWithdraw, bridgeCancelAction, bridgeRefundAction, bridgeReplaceByFeeAction, bridgeDepositStatusAction, bridgeWithdrawalStatusAction, bridgeGetParamsAction } from 'agentkit/plugins';",
+      "import { bridgeWithdrawAction as onchainBridgeWithdraw, bridgeCancelAction, bridgeRefundAction, bridgeReplaceByFeeAction, bridgeDepositStatusAction, bridgeWithdrawalStatusAction, bridgeGetParamsAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(onchainBridgeWithdraw(wallet));',
@@ -188,7 +189,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   bitcoin: {
     imports: [
-      "import { bitcoinBlockHashAction, bitcoinLatestHeightAction, bitcoinNetworkNameAction } from 'agentkit/plugins';",
+      "import { bitcoinBlockHashAction, bitcoinLatestHeightAction, bitcoinNetworkNameAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(bitcoinBlockHashAction(wallet));',
@@ -206,7 +207,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   bitvm2: {
     imports: [
-      "import { bitvm2RegisterPubkeyAction, bitvm2StakeApproveAction, bitvm2StakeAction, bitvm2LockStakeAction, bitvm2PegBtcBalanceAction } from 'agentkit/plugins';",
+      "import { bitvm2RegisterPubkeyAction, bitvm2StakeApproveAction, bitvm2StakeAction, bitvm2LockStakeAction, bitvm2PegBtcBalanceAction } from '@goatnetwork/agentkit/plugins';",
       "// bitvm2 pegin/pegout/bridge actions require GoatAdapter — see docs",
     ],
     registrations: [
@@ -220,7 +221,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   erc721: {
     imports: [
-      "import { erc721BalanceAction, erc721TransferAction, erc721MintAction } from 'agentkit/plugins';",
+      "import { erc721BalanceAction, erc721TransferAction, erc721MintAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(erc721BalanceAction(wallet));',
@@ -238,7 +239,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   'goat-token': {
     imports: [
-      "import { goatTokenDelegateAction, goatTokenGetVotesAction, goatTokenGetDelegatesAction } from 'agentkit/plugins';",
+      "import { goatTokenDelegateAction, goatTokenGetVotesAction, goatTokenGetDelegatesAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(goatTokenDelegateAction(wallet));',
@@ -248,7 +249,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   dex: {
     imports: [
-      "import { dexQuoteAction, dexSwapAction, dexGetPoolAction, dexAddLiquidityAction, dexRemoveLiquidityAction, dexCollectFeesAction, dexGetPositionAction } from 'agentkit/plugins';",
+      "import { dexQuoteAction, dexSwapAction, dexGetPoolAction, dexAddLiquidityAction, dexRemoveLiquidityAction, dexCollectFeesAction, dexGetPositionAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(dexQuoteAction(wallet));',
@@ -262,7 +263,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   layerzero: {
     imports: [
-      "import { oftQuoteSendAction, oftSendAction, oftQuoteOftAction } from 'agentkit/plugins';",
+      "import { oftQuoteSendAction, oftSendAction, oftQuoteOftAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(oftQuoteSendAction(wallet));',
@@ -272,7 +273,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   'x402-merchant': {
     imports: [
-      "import { HttpMerchantPortalClient, merchantAuthLoginAction, merchantAuthRegisterAction, merchantAuthRegisterInviteAction, merchantAuthRefreshAction, merchantDashboardStatsAction, merchantProfileGetAction, merchantProfileUpdateAction, merchantOrdersListAction, merchantOrdersGetAction, merchantBalanceGetAction, merchantBalanceTransactionsAction, merchantBalanceFeesConfigAction, merchantSupportedTokensListAction, merchantAddressesListAction, merchantAddressesAddAction, merchantAddressesRemoveAction, merchantCallbackContractsListAction, merchantCallbackContractsSubmitAction, merchantCallbackContractsRemoveAction, merchantCallbackContractsCancelSubmissionAction, merchantApiKeysGetAction, merchantApiKeysRotateAction, merchantWebhooksListAction, merchantWebhooksCreateAction, merchantWebhooksUpdateAction, merchantWebhooksDeleteAction, merchantInviteCodesListAction, merchantInviteCodesCreateAction, merchantInviteCodesRevokeAction, merchantAuditLogsListAction } from 'agentkit/plugins';",
+      "import { HttpMerchantPortalClient, merchantAuthLoginAction, merchantAuthRegisterAction, merchantAuthRegisterInviteAction, merchantAuthRefreshAction, merchantDashboardStatsAction, merchantProfileGetAction, merchantProfileUpdateAction, merchantOrdersListAction, merchantOrdersGetAction, merchantBalanceGetAction, merchantBalanceTransactionsAction, merchantBalanceFeesConfigAction, merchantSupportedTokensListAction, merchantAddressesListAction, merchantAddressesAddAction, merchantAddressesRemoveAction, merchantCallbackContractsListAction, merchantCallbackContractsSubmitAction, merchantCallbackContractsRemoveAction, merchantCallbackContractsCancelSubmissionAction, merchantApiKeysGetAction, merchantApiKeysRotateAction, merchantWebhooksListAction, merchantWebhooksCreateAction, merchantWebhooksUpdateAction, merchantWebhooksDeleteAction, merchantInviteCodesListAction, merchantInviteCodesCreateAction, merchantInviteCodesRevokeAction, merchantAuditLogsListAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       "// Auth actions return { access_token }; pass it via ActionContext.accessToken in subsequent calls.",
@@ -311,7 +312,7 @@ const PLUGIN_SNIPPETS: Record<string, PluginSnippet> = {
   },
   erc8004: {
     imports: [
-      "import { erc8004RegisterAgentAction, erc8004SetAgentURIAction, erc8004GetMetadataAction, erc8004SetMetadataAction, erc8004GetAgentWalletAction, erc8004GiveFeedbackAction, erc8004RevokeFeedbackAction, erc8004GetReputationAction, erc8004GetClientsAction } from 'agentkit/plugins';",
+      "import { erc8004RegisterAgentAction, erc8004SetAgentURIAction, erc8004GetMetadataAction, erc8004SetMetadataAction, erc8004GetAgentWalletAction, erc8004GiveFeedbackAction, erc8004RevokeFeedbackAction, erc8004GetReputationAction, erc8004GetClientsAction } from '@goatnetwork/agentkit/plugins';",
     ],
     registrations: [
       'provider.register(erc8004RegisterAgentAction(wallet));',
@@ -377,14 +378,6 @@ async function main() {
 
     const root = path.resolve(opts.projectName);
 
-    // Compute correct relative path from generated project back to agentkit root
-    const agentkitRoot = path.resolve(path.dirname(import.meta.url.replace('file://', '')), '..');
-    const relPath = path.relative(root, agentkitRoot).split(path.sep).join('/');
-    files['package.json'] = files['package.json'].replace(
-      '"agentkit": "file:.."',
-      `"agentkit": "file:${relPath}"`,
-    );
-
     for (const [filePath, content] of Object.entries(files)) {
       const abs = path.join(root, filePath);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -410,8 +403,11 @@ async function main() {
   }
 }
 
-// Only run CLI when executed directly (not imported)
-const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.url.replace('file://', ''));
+// Only run CLI when executed directly (not imported as a library).
+// Use fs.realpathSync to resolve symlinks (npx creates symlinks to bin entries).
+const isDirectRun =
+  process.argv[1] &&
+  fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(path.resolve(process.argv[1]));
 if (isDirectRun) {
   main().catch((err) => {
     console.error(err);

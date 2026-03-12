@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateProject } from '../../bin/create-goat-agent';
-import type { Preset } from '../../bin/create-goat-agent';
+import { generateProject } from '../../packages/create-goat-agent/src/index';
+import type { Preset } from '../../packages/create-goat-agent/src/index';
 import * as pluginsExports from '../../plugins/index';
 import * as coreExports from '../../core/index';
 import * as providersExports from '../../providers/index';
@@ -25,7 +25,7 @@ describe('generateProject', () => {
     const pkg = JSON.parse(files['package.json']);
 
     expect(pkg.name).toBe('my-agent');
-    expect(pkg.dependencies).toHaveProperty('agentkit');
+    expect(pkg.dependencies).toHaveProperty('@goatnetwork/agentkit');
     expect(pkg.dependencies).toHaveProperty('zod');
     expect(pkg.devDependencies).toHaveProperty('@types/node');
     expect(pkg.devDependencies).toHaveProperty('tsx');
@@ -103,7 +103,7 @@ describe('generateProject', () => {
     const src = files['src/index.ts'];
 
     // Extract all named imports from 'agentkit/plugins', 'agentkit/core', 'agentkit/providers'
-    const importRegex = /import\s*\{([^}]+)\}\s*from\s*'agentkit\/(plugins|core|providers)'/g;
+    const importRegex = /import\s*\{([^}]+)\}\s*from\s*'@goatnetwork\/agentkit\/(plugins|core|providers)'/g;
     const exportMaps: Record<string, Record<string, unknown>> = {
       plugins: pluginsExports,
       core: coreExports,
