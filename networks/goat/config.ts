@@ -12,7 +12,7 @@ export const goatNetworks: Record<GoatNetworkConfig['key'], GoatNetworkConfig> =
   },
   'goat-testnet': {
     key: 'goat-testnet',
-    chainId: 2346,
-    rpcUrl: process.env.GOAT_TESTNET_RPC_URL ?? 'https://rpc.testnet.goat.network',
+    chainId: 48816,
+    rpcUrl: process.env.GOAT_TESTNET_RPC_URL ?? 'https://rpc.testnet3.goat.network',
   },
 };

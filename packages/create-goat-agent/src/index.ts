@@ -80,7 +80,7 @@ function envExample(opts: GenerateOptions): string {
   const lines = [
     '# Goat Network RPC',
     'GOAT_MAINNET_RPC_URL=https://rpc.goat.network',
-    'GOAT_TESTNET_RPC_URL=https://rpc.testnet.goat.network',
+    'GOAT_TESTNET_RPC_URL=https://rpc.testnet3.goat.network',
     '',
     '# Agentkit',
     'AGENTKIT_IDEMPOTENCY_MODE=memory',
