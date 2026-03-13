@@ -1,6 +1,6 @@
 {
   "name": "@goatnetwork/agentkit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript SDK enabling AI Agents to autonomously execute on-chain operations on GOAT Network",
   "type": "module",
   "main": "dist/index.js",
