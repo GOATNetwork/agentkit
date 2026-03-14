@@ -1,6 +1,6 @@
 {
   "name": "create-goat-agent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "CLI scaffolding tool for GOAT Network AI Agent projects",
   "type": "module",
   "main": "dist/index.js",
