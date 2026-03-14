@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-import { IDENTITY_REGISTRY_ADDRESS } from './register-agent';
+import { getIdentityRegistryAddress } from '../addresses';
 
 export interface SetAgentURIInput {
   agentId: string;
@@ -31,7 +31,7 @@ export function erc8004SetAgentURIAction(
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
       return wallet.writeContract(
-        IDENTITY_REGISTRY_ADDRESS,
+        getIdentityRegistryAddress(ctx.network),
         SET_URI_ABI,
         'setAgentURI',
         [BigInt(input.agentId), input.newURI],

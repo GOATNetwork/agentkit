@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-import { IDENTITY_REGISTRY_ADDRESS } from './register-agent';
+import { getIdentityRegistryAddress } from '../addresses';
 
 export interface SetMetadataInput {
   agentId: string;
@@ -33,7 +33,7 @@ export function erc8004SetMetadataAction(
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
       return wallet.writeContract(
-        IDENTITY_REGISTRY_ADDRESS,
+        getIdentityRegistryAddress(ctx.network),
         SET_METADATA_ABI,
         'setMetadata',
         [BigInt(input.agentId), input.metadataKey, input.metadataValue],

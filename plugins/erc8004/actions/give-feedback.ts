@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-import { REPUTATION_REGISTRY_ADDRESS } from './register-agent';
+import { getReputationRegistryAddress } from '../addresses';
 
 export interface GiveFeedbackInput {
   agentId: string;
@@ -45,7 +45,7 @@ export function erc8004GiveFeedbackAction(
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
       return wallet.writeContract(
-        REPUTATION_REGISTRY_ADDRESS,
+        getReputationRegistryAddress(ctx.network),
         GIVE_FEEDBACK_ABI,
         'giveFeedback',
         [
