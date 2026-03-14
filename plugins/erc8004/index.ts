@@ -1,8 +1,5 @@
-export {
-  erc8004RegisterAgentAction,
-  IDENTITY_REGISTRY_ADDRESS,
-  REPUTATION_REGISTRY_ADDRESS,
-} from './actions/register-agent';
+export { erc8004RegisterAgentAction } from './actions/register-agent';
+export { getIdentityRegistryAddress, getReputationRegistryAddress } from './addresses';
 export { erc8004SetAgentURIAction } from './actions/set-agent-uri';
 export { erc8004GetMetadataAction } from './actions/get-metadata';
 export { erc8004SetMetadataAction } from './actions/set-metadata';

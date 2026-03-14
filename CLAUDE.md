@@ -89,7 +89,7 @@ All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`
 | **Bitcoin** | `plugins/bitcoin/` | 3 — `block_hash`, `latest_height`, `network_name` | Bitcoin block oracle / light client (predeployed `0xbC10…0005`), all read-only |
 | **DEX** | `plugins/dex/` | 7 — `quote`, `swap`, `get_pool`, `add_liquidity`, `remove_liquidity`, `collect_fees`, `get_position` | OKU (Uniswap V3) on goat-mainnet; `swap`/`add_liquidity` are payable |
 | **LayerZero** | `plugins/layerzero/` | 3 — `quote_send`, `send`, `quote_oft` | LayerZero V2 OFT cross-chain transfers (EID 30361); `send` is payable |
-| **ERC-8004** | `plugins/erc8004/` | 9 — `register_agent`, `set_agent_uri`, `get_metadata`, `set_metadata`, `get_agent_wallet`, `give_feedback`, `revoke_feedback`, `get_reputation`, `get_clients` | Trustless Agents (Identity + Reputation registries); CREATE2-deployed |
+| **ERC-8004** | `plugins/erc8004/` | 9 — `register_agent`, `set_agent_uri`, `get_metadata`, `set_metadata`, `get_agent_wallet`, `give_feedback`, `revoke_feedback`, `get_reputation`, `get_clients` | Trustless Agents (Identity + Reputation registries); network-aware addresses via `addresses.ts` |
 | **x402-Merchant** | `plugins/x402-merchant/` | 30 — Auth (`register`, `register-invite`, `login`, `refresh`), Dashboard (`stats`), Profile (`get`, `update`), Orders (`list`, `get`), Balance (`get`, `transactions`, `fees-config`), Supported Tokens (`list`), Addresses (`list`, `add`, `remove`), Callback Contracts (`list`, `submit`, `remove`, `cancel-submission`), API Keys (`get`, `rotate`), Webhooks (`list`, `create`, `update`, `delete`), Invite Codes (`list`, `create`, `revoke`), Audit Logs (`list`) | x402 Merchant Portal management via `MerchantPortalClient` HTTP adapter |
 
 ### Predeployed Contract Addresses
@@ -105,8 +105,10 @@ All errors flow through `AgentkitRuntimeError` with typed codes: `INVALID_INPUT`
 | OKU PositionManager | `0x743E03cceB4af2efA3CC76838f6E8B50B63F184c` |
 | OKU V3Factory | `0xcb2436774C3e191c85056d248EF4260ce5f27A9D` |
 | LayerZero Endpoint V2 | `0x6F475642a6e85809B1c36Fa62763669b1b48DD5B` |
-| ERC-8004 Identity Registry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| ERC-8004 Reputation Registry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| ERC-8004 Identity Registry (mainnet) | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ERC-8004 Identity Registry (testnet3) | `0x556089008Fc0a60cD09390Eca93477ca254A5522` |
+| ERC-8004 Reputation Registry (mainnet) | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| ERC-8004 Reputation Registry (testnet3) | `0xd9140951d8aE6E5F625a02F5908535e16e3af964` |
 | BitVM2 Gateway | `0x440c6dCA87C3511E1eBf4FDB1f584ddaA49dD029` |
 | BitVM2 StakeManagement | `0x4B6BD356FE9Ad077c6E3691BB2838e814B3F4032` |
 | BitVM2 PegBTC | `0xdA97429ea2082334C63813f092B6A6209bfC4DEb` |

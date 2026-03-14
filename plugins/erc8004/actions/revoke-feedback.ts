@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-import { REPUTATION_REGISTRY_ADDRESS } from './register-agent';
+import { getReputationRegistryAddress } from '../addresses';
 
 export interface RevokeFeedbackInput {
   agentId: string;
@@ -31,7 +31,7 @@ export function erc8004RevokeFeedbackAction(
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
       return wallet.writeContract(
-        REPUTATION_REGISTRY_ADDRESS,
+        getReputationRegistryAddress(ctx.network),
         REVOKE_FEEDBACK_ABI,
         'revokeFeedback',
         [BigInt(input.agentId), BigInt(input.feedbackIndex)],

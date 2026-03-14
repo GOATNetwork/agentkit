@@ -1,9 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-
-export const IDENTITY_REGISTRY_ADDRESS = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
-export const REPUTATION_REGISTRY_ADDRESS = '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63';
+import { getIdentityRegistryAddress } from '../addresses';
 
 export interface RegisterAgentInput {
   agentURI: string;
@@ -31,7 +29,7 @@ export function erc8004RegisterAgentAction(
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
       return wallet.writeContract(
-        IDENTITY_REGISTRY_ADDRESS,
+        getIdentityRegistryAddress(ctx.network),
         REGISTER_ABI,
         'register',
         [input.agentURI],
