@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-import { REPUTATION_REGISTRY_ADDRESS } from './register-agent';
+import { getReputationRegistryAddress } from '../addresses';
 import { evmAddress } from '../../../core/schema/validators';
 
 export interface GetReputationInput {
@@ -39,9 +39,9 @@ export function erc8004GetReputationAction(
     requiresConfirmation: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const result = await wallet.callContract(
-        REPUTATION_REGISTRY_ADDRESS,
+        getReputationRegistryAddress(ctx.network),
         GET_SUMMARY_ABI,
         'getSummary',
         [BigInt(input.agentId), input.clientAddresses, input.tag1, input.tag2],

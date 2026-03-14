@@ -9,8 +9,8 @@ import {
   erc8004RevokeFeedbackAction,
   erc8004GetReputationAction,
   erc8004GetClientsAction,
-  IDENTITY_REGISTRY_ADDRESS,
-  REPUTATION_REGISTRY_ADDRESS,
+  getIdentityRegistryAddress,
+  getReputationRegistryAddress,
 } from '../../plugins/erc8004/index';
 import type { WalletProvider } from '../../core/wallet/wallet-provider';
 
@@ -32,6 +32,7 @@ function mockWallet(overrides: Partial<WalletProvider> = {}): WalletProvider {
 }
 
 const ctx = { traceId: 't1', network: 'goat-mainnet', now: Date.now() };
+const testnetCtx = { traceId: 't2', network: 'goat-testnet', now: Date.now() };
 
 describe('erc8004.register_agent', () => {
   it('has correct metadata', () => {
@@ -48,13 +49,38 @@ describe('erc8004.register_agent', () => {
     const result = await action.execute(ctx, { agentURI: 'https://example.com/agent.json' });
     expect(result).toEqual({ txHash: '0xtx_8004' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      IDENTITY_REGISTRY_ADDRESS,
+      getIdentityRegistryAddress('goat-mainnet'),
       ['function register(string agentURI) returns (uint256 agentId)'],
       'register',
       ['https://example.com/agent.json'],
       undefined,
       { signal: undefined },
     );
+  });
+
+  it('uses the testnet identity registry when ctx.network is goat-testnet', async () => {
+    const wallet = mockWallet();
+    const action = erc8004RegisterAgentAction(wallet);
+
+    await action.execute(testnetCtx, { agentURI: 'https://example.com/agent.json' });
+
+    expect(wallet.writeContract).toHaveBeenCalledWith(
+      getIdentityRegistryAddress('goat-testnet'),
+      ['function register(string agentURI) returns (uint256 agentId)'],
+      'register',
+      ['https://example.com/agent.json'],
+      undefined,
+      { signal: undefined },
+    );
+  });
+
+  it('throws for unsupported networks', async () => {
+    const wallet = mockWallet();
+    const action = erc8004RegisterAgentAction(wallet);
+
+    await expect(
+      action.execute({ traceId: 't3', network: 'unsupported-network', now: Date.now() }, { agentURI: 'https://example.com/agent.json' }),
+    ).rejects.toThrow('ERC-8004 Identity Registry is not available on network "unsupported-network"');
   });
 });
 
@@ -68,7 +94,7 @@ describe('erc8004.set_agent_uri', () => {
     const result = await action.execute(ctx, { agentId: '42', newURI: 'https://new.uri/agent.json' });
     expect(result).toEqual({ txHash: '0xtx_8004' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      IDENTITY_REGISTRY_ADDRESS,
+      getIdentityRegistryAddress('goat-mainnet'),
       expect.any(Array),
       'setAgentURI',
       [BigInt(42), 'https://new.uri/agent.json'],
@@ -88,7 +114,7 @@ describe('erc8004.get_metadata', () => {
     const result = await action.execute(ctx, { agentId: '1', metadataKey: 'description' });
     expect(result).toEqual({ agentId: '1', metadataKey: 'description', metadataValue: '0xdeadbeef' });
     expect(wallet.callContract).toHaveBeenCalledWith(
-      IDENTITY_REGISTRY_ADDRESS,
+      getIdentityRegistryAddress('goat-mainnet'),
       expect.any(Array),
       'getMetadata',
       [BigInt(1), 'description'],
@@ -105,7 +131,7 @@ describe('erc8004.set_metadata', () => {
 
     await action.execute(ctx, { agentId: '1', metadataKey: 'description', metadataValue: '0x1234' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      IDENTITY_REGISTRY_ADDRESS,
+      getIdentityRegistryAddress('goat-mainnet'),
       expect.any(Array),
       'setMetadata',
       [BigInt(1), 'description', '0x1234'],
@@ -148,13 +174,61 @@ describe('erc8004.give_feedback', () => {
     });
     expect(result).toEqual({ txHash: '0xtx_8004' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      REPUTATION_REGISTRY_ADDRESS,
+      getReputationRegistryAddress('goat-mainnet'),
       expect.any(Array),
       'giveFeedback',
       [BigInt(1), 87, 0, 'quality', '', 'https://agent.example.com', 'ipfs://feedback', hash],
       undefined,
       { signal: undefined },
     );
+  });
+
+  it('uses the testnet reputation registry when ctx.network is goat-testnet', async () => {
+    const wallet = mockWallet();
+    const action = erc8004GiveFeedbackAction(wallet);
+    const hash = '0x' + 'cd'.repeat(32);
+
+    await action.execute(testnetCtx, {
+      agentId: '1',
+      value: 87,
+      valueDecimals: 0,
+      tag1: 'quality',
+      tag2: '',
+      endpoint: 'https://agent.example.com',
+      feedbackURI: 'ipfs://feedback',
+      feedbackHash: hash,
+    });
+
+    expect(wallet.writeContract).toHaveBeenCalledWith(
+      getReputationRegistryAddress('goat-testnet'),
+      expect.any(Array),
+      'giveFeedback',
+      [BigInt(1), 87, 0, 'quality', '', 'https://agent.example.com', 'ipfs://feedback', hash],
+      undefined,
+      { signal: undefined },
+    );
+  });
+
+  it('throws for unsupported networks', async () => {
+    const wallet = mockWallet();
+    const action = erc8004GiveFeedbackAction(wallet);
+    const hash = '0x' + 'ef'.repeat(32);
+
+    await expect(
+      action.execute(
+        { traceId: 't4', network: 'unsupported-network', now: Date.now() },
+        {
+          agentId: '1',
+          value: 87,
+          valueDecimals: 0,
+          tag1: 'quality',
+          tag2: '',
+          endpoint: 'https://agent.example.com',
+          feedbackURI: 'ipfs://feedback',
+          feedbackHash: hash,
+        },
+      ),
+    ).rejects.toThrow('ERC-8004 Reputation Registry is not deployed on network "unsupported-network"');
   });
 });
 
@@ -166,7 +240,7 @@ describe('erc8004.revoke_feedback', () => {
 
     await action.execute(ctx, { agentId: '1', feedbackIndex: '3' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      REPUTATION_REGISTRY_ADDRESS,
+      getReputationRegistryAddress('goat-mainnet'),
       expect.any(Array),
       'revokeFeedback',
       [BigInt(1), BigInt(3)],

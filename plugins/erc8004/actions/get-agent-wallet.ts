@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
-import { IDENTITY_REGISTRY_ADDRESS } from './register-agent';
+import { getIdentityRegistryAddress } from '../addresses';
 
 export interface GetAgentWalletInput {
   agentId: string;
@@ -28,9 +28,9 @@ export function erc8004GetAgentWalletAction(
     requiresConfirmation: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
-    async execute(_ctx, input) {
+    async execute(ctx, input) {
       const result = await wallet.callContract(
-        IDENTITY_REGISTRY_ADDRESS,
+        getIdentityRegistryAddress(ctx.network),
         GET_AGENT_WALLET_ABI,
         'getAgentWallet',
         [BigInt(input.agentId)],
