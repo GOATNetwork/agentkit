@@ -22,7 +22,7 @@ export function erc8004RegisterAgentAction(
 ): ActionDefinition<RegisterAgentInput, RegisterAgentOutput> {
   return {
     name: 'erc8004.register_agent',
-    description: 'Register a new agent in the ERC-8004 Identity Registry. Returns the transaction hash. The agentURI should point to a JSON registration file describing the agent.',
+    description: 'Register a new agent in the ERC-8004 Identity Registry. Returns the transaction hash. The agentURI must be a publicly accessible URL pointing to a JSON metadata file (e.g. https://example.com/agent-metadata.json). Do not pass raw JSON content directly.',
     riskLevel: 'high',
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
