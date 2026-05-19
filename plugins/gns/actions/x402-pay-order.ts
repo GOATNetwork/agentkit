@@ -74,30 +74,39 @@ export function x402PayOrderAction(
     async execute(ctx, input) {
       const order = await api.getX402Order(input.orderId, ctx.signal);
 
-      // We need amountWei/tokenContract/payToAddress/expiresAt/payChainId.
-      // The status endpoint may return them or may not — production includes
-      // them in `raw`. Re-fetch via createX402Order? No — we don't have the
-      // creation inputs. We rely on the status endpoint exposing them in
-      // `raw` and fall back to AgentkitRuntimeError if missing.
-      const raw = (order.raw ?? {}) as Record<string, unknown>;
-      const payChainId = Number(raw.payChainId ?? raw.chainId ?? 0);
-      const amountWei = String(raw.amountWei ?? '');
-      const payToAddress = String(raw.payToAddress ?? '');
-      const tokenContract = String(raw.tokenContract ?? '');
-      const expiresAt = Number(raw.expiresAt ?? 0);
-      if (!payChainId || !amountWei || !payToAddress || !tokenContract) {
+      // Per Codex R6 #14: enforce a strict runtime shape on `order.raw`
+      // before any chain write. The status endpoint is loosely typed,
+      // so each field is parsed with Zod and a missing/malformed field
+      // surfaces as ADAPTER_REQUEST_FAILED with the specific field name.
+      const rawPaymentSchema = z.object({
+        payChainId: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]).optional(),
+        chainId: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]).optional(),
+        amountWei: z.string().regex(/^\d+$/),
+        payToAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+        tokenContract: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+        expiresAt: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]),
+      });
+      const parsed = rawPaymentSchema.safeParse(order.raw ?? {});
+      if (!parsed.success) {
         throw new AgentkitRuntimeError(
           ErrorCodes.ADAPTER_REQUEST_FAILED,
-          `x402 order status missing required fields for payment (orderId=${input.orderId})`,
-          { raw },
+          `x402 order status missing or malformed required fields (orderId=${input.orderId}): ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          { raw: order.raw },
         );
       }
-      if (!/^\d+$/.test(amountWei)) {
+      const payChainIdRaw = parsed.data.payChainId ?? parsed.data.chainId;
+      if (payChainIdRaw == null) {
         throw new AgentkitRuntimeError(
-          ErrorCodes.INVALID_INPUT,
-          `order amountWei is not a base-10 integer: "${amountWei}"`,
+          ErrorCodes.ADAPTER_REQUEST_FAILED,
+          `x402 order status missing required field: payChainId / chainId (orderId=${input.orderId})`,
+          { raw: order.raw },
         );
       }
+      const payChainId = Number(payChainIdRaw);
+      const amountWei = parsed.data.amountWei;
+      const payToAddress = parsed.data.payToAddress;
+      const tokenContract = parsed.data.tokenContract;
+      const expiresAt = Number(parsed.data.expiresAt);
 
       const nowSec = Math.floor(Date.now() / 1000);
       if (nowSec >= expiresAt - EXPIRY_SAFETY_MARGIN_SEC) {
