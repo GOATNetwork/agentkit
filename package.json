@@ -5,8 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "agentkit-gns": "./bin/gns.mjs",
+    "agentkit-giftcard": "./bin/giftcard.mjs"
+  },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "publishConfig": {
     "access": "public"
@@ -57,9 +62,13 @@
     "test:unit": "vitest run tests/unit",
     "test": "vitest run tests",
     "test:integration": "vitest run tests/integration",
-    "test:redis": "node scripts/test-redis.mjs"
+    "test:redis": "node scripts/test-redis.mjs",
+    "cli:gns": "node bin/gns.mjs",
+    "cli:giftcard": "node bin/giftcard.mjs",
+    "sync:skill-manifests": "node scripts/sync-skill-manifests.mjs"
   },
   "dependencies": {
+    "commander": "^12.1.0",
     "ethers": "^6.15.0",
     "ioredis": "^5.7.0",
     "tsx": "^4.20.5",
