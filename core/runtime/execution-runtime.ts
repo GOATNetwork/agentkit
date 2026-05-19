@@ -99,6 +99,12 @@ export class ExecutionRuntime {
       // Prefer the runtime option; fall back to whatever the caller may
       // have pre-populated on the context (pre-population is a supported
       // pattern for cross-runtime delegation).
+      //
+      // Edge: `''` is propagated as-is (?? only short-circuits on
+      // null/undefined). Because the cache-key guard below uses a
+      // truthy check, an empty-string key disables idempotency caching
+      // entirely — that is the existing behavior; callers wanting
+      // dedup must pass a non-empty string.
       idempotencyKey: options.idempotencyKey ?? inputContext.idempotencyKey,
     };
     const traceId = context.traceId;

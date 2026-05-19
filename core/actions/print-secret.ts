@@ -19,21 +19,27 @@ const outputSchema = z.object({ printed: z.literal(true) });
 
 /**
  * agentkit.print-secret — local sink for surfacing a sensitive value
- * (card code, recovery phrase, etc.) to the operator without leaking
- * it to telemetry pipelines.
+ * (card code, recovery phrase, etc.) to the operator while keeping it
+ * out of in-SDK logging and hook payloads.
  *
  * The action ALWAYS writes `input.value` (preceded by optional label)
  * to process.stdout. The protection model has three layers:
  *   1. `sensitiveInputFields: ['value']` — onActionStart hook receives
- *      `value: '[REDACTED]'`, so any subscribed logger / telemetry sink
- *      never sees the plaintext.
- *   2. stdout is a local sink that bypasses every logger in the host
- *      process — capturing it requires explicit stream redirection.
+ *      `value: '[REDACTED]'`, so any logger or telemetry sink wired
+ *      through the SDK's hook system never sees the plaintext.
+ *   2. process.stdout bypasses any logger configured via this SDK's
+ *      `RuntimeLogger` interface. **It does NOT bypass host-level
+ *      stdout capture** — runtimes like AWS Lambda, Vercel Functions,
+ *      Kubernetes / container logs, systemd-journald, PM2, or a Vitest
+ *      worker (see this action's own unit test) will still record the
+ *      plaintext. Use this action only on hosts where stdout is a
+ *      genuinely local sink (interactive terminal, local CLI run).
  *   3. The caller decides whether to invoke print-secret at all; it is
  *      not chained automatically by any other action.
  *
  * Callers MUST treat this action as the explicit "show this once" step
- * and avoid wrapping it in framework adapters that capture stdout.
+ * for interactive use and avoid invoking it inside server / serverless
+ * runtimes whose stdout is harvested by the platform.
  */
 export function printSecretAction(): ActionDefinition<PrintSecretInput, PrintSecretOutput> {
   return {
@@ -48,8 +54,9 @@ export function printSecretAction(): ActionDefinition<PrintSecretInput, PrintSec
     sensitiveInputFields: ['value'],
     sensitiveOutputFields: [],
     async execute(_ctx, input) {
-      // stdout bypasses every logger in the host process — that is the
-      // entire point of this action; do not switch to a logger here.
+      // stdout bypasses in-SDK loggers (the action's whole purpose);
+      // do not switch to a logger here. Host-level capture (Lambda,
+      // k8s, PM2, Vitest worker) still applies — see JSDoc above.
       const label = input.label ? `${input.label}: ` : '';
       process.stdout.write(`${label}${input.value}\n`);
       return { printed: true };
