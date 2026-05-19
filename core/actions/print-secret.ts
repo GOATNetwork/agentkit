@@ -19,19 +19,27 @@ const outputSchema = z.object({ printed: z.literal(true) });
 
 /**
  * agentkit.print-secret — local sink for surfacing a sensitive value
- * (card code, recovery phrase, etc.) without writing it to hooks/logs.
+ * (card code, recovery phrase, etc.) to the operator without leaking
+ * it to telemetry pipelines.
  *
- * Writes value to process.stdout ONLY when ExecutionOptions.revealedFields
- * includes 'value' on this call. Otherwise prints '[REDACTED]'.
+ * The action ALWAYS writes `input.value` (preceded by optional label)
+ * to process.stdout. The protection model has three layers:
+ *   1. `sensitiveInputFields: ['value']` — onActionStart hook receives
+ *      `value: '[REDACTED]'`, so any subscribed logger / telemetry sink
+ *      never sees the plaintext.
+ *   2. stdout is a local sink that bypasses every logger in the host
+ *      process — capturing it requires explicit stream redirection.
+ *   3. The caller decides whether to invoke print-secret at all; it is
+ *      not chained automatically by any other action.
  *
- * Both `value` (input) and the runtime's output redaction protect against
- * accidental telemetry leak.
+ * Callers MUST treat this action as the explicit "show this once" step
+ * and avoid wrapping it in framework adapters that capture stdout.
  */
 export function printSecretAction(): ActionDefinition<PrintSecretInput, PrintSecretOutput> {
   return {
     name: 'agentkit.print-secret',
     description:
-      'Print a sensitive value (e.g. card code) to local stdout once. Use ExecutionOptions.revealedFields:["value"] to actually print plaintext; defaults to redacted.',
+      'Print a sensitive value (e.g. gift card code) to local stdout once. Telemetry sees [REDACTED] via sensitiveInputFields; stdout receives plaintext for the operator.',
     riskLevel: 'low',
     requiresConfirmation: false,
     networks: [],
@@ -40,8 +48,8 @@ export function printSecretAction(): ActionDefinition<PrintSecretInput, PrintSec
     sensitiveInputFields: ['value'],
     sensitiveOutputFields: [],
     async execute(_ctx, input) {
-      // Note: stdout.write here is intentional — we want to bypass
-      // any logger that might forward to telemetry.
+      // stdout bypasses every logger in the host process — that is the
+      // entire point of this action; do not switch to a logger here.
       const label = input.label ? `${input.label}: ` : '';
       process.stdout.write(`${label}${input.value}\n`);
       return { printed: true };

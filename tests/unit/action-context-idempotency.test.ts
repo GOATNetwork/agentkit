@@ -67,4 +67,48 @@ describe('ActionContext.idempotencyKey propagation', () => {
     expect(result.ok).toBe(true);
     expect(captured).toBeUndefined();
   });
+
+  it('preserves pre-populated ctx.idempotencyKey when option is omitted', async () => {
+    let captured: string | undefined;
+    const action: ActionDefinition<unknown, { ok: true }> = {
+      name: 'test.capture-key',
+      description: 'capture ctx.idempotencyKey',
+      riskLevel: 'read',
+      requiresConfirmation: false,
+      networks: ['goat-testnet'],
+      async execute(actionCtx) {
+        captured = actionCtx.idempotencyKey;
+        return { ok: true };
+      },
+    };
+
+    const runtime = makeRuntime();
+    const ctxWithKey: ActionContext = { ...ctx, idempotencyKey: 'pre-populated' };
+    const result = await runtime.run(action, ctxWithKey, {});
+
+    expect(result.ok).toBe(true);
+    expect(captured).toBe('pre-populated');
+  });
+
+  it('runtime option takes precedence over pre-populated context key', async () => {
+    let captured: string | undefined;
+    const action: ActionDefinition<unknown, { ok: true }> = {
+      name: 'test.capture-key',
+      description: 'capture ctx.idempotencyKey',
+      riskLevel: 'read',
+      requiresConfirmation: false,
+      networks: ['goat-testnet'],
+      async execute(actionCtx) {
+        captured = actionCtx.idempotencyKey;
+        return { ok: true };
+      },
+    };
+
+    const runtime = makeRuntime();
+    const ctxWithKey: ActionContext = { ...ctx, idempotencyKey: 'pre-populated' };
+    const result = await runtime.run(action, ctxWithKey, {}, { idempotencyKey: 'option-wins' });
+
+    expect(result.ok).toBe(true);
+    expect(captured).toBe('option-wins');
+  });
 });

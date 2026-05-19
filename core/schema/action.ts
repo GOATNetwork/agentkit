@@ -29,13 +29,23 @@ export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
   outputSchema?: Record<string, unknown>;
   zodInputSchema?: ZodTypeAny;
   zodOutputSchema?: ZodTypeAny;
-  /** Field names to redact from output before passing to execution hooks (e.g. tokens, secrets). */
+  /**
+   * Top-level field names to redact from output before passing to
+   * execution hooks (e.g. tokens, secrets). SHALLOW redaction only —
+   * nested objects are not traversed; keep secret fields at the top
+   * level of your output shape.
+   */
   sensitiveOutputFields?: string[];
   /**
-   * Names of input fields whose values must be shallow-redacted
-   * before being passed to onActionStart hook events. Symmetric to
+   * Top-level field names whose values must be redacted before being
+   * passed to onActionStart hook events. Symmetric to
    * sensitiveOutputFields. Use for secrets that arrive via input
    * (e.g., commit secret being chained into a register call).
+   *
+   * SHALLOW redaction only — nested objects are not traversed.
+   * Convention: keep sensitive inputs at the top level of TInput
+   * rather than nesting them inside a context-style object, otherwise
+   * the redaction will not reach them.
    */
   sensitiveInputFields?: string[];
   execute: (ctx: ActionContext, input: TInput) => Promise<TOutput>;

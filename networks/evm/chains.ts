@@ -27,6 +27,15 @@ function assertUniqueChainIds(table: readonly ChainMetadata[]): void {
 }
 assertUniqueChainIds(EVM_CHAIN_METADATA);
 
+/**
+ * Look up display metadata for an EVM chain by chainId.
+ *
+ * For unknown chainIds this returns a fallback object whose `isTestnet`
+ * is `false`. The fallback is for human-readable error messages only.
+ * Do NOT gate production behavior on `isTestnet` for chains not in the
+ * curated table — if you need a definitive testnet check, compare
+ * chainId directly or extend `EVM_CHAIN_METADATA`.
+ */
 export function getChainMetadata(chainId: number): ChainMetadata {
   const found = EVM_CHAIN_METADATA.find((c) => c.chainId === chainId);
   if (found) return found;

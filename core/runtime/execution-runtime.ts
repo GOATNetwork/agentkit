@@ -33,7 +33,10 @@ export interface ExecutionOptions {
   /**
    * Field names listed in `action.sensitiveOutputFields` that should NOT
    * be redacted in onActionSuccess hook events for this single call.
-   * Undefined or empty array means default behavior (full redaction).
+   * Applies to OUTPUT only — there is no input-side equivalent because
+   * input hook redaction is non-negotiable for incoming secrets.
+   * Undefined or empty array means default behavior (full output
+   * redaction). Field names not in sensitiveOutputFields are a no-op.
    * Result.output returned to the caller is never redacted regardless.
    */
   revealedFields?: string[];
@@ -93,7 +96,10 @@ export class ExecutionRuntime {
     // the idempotency cache key is computed.
     const context: ActionContext = {
       ...inputContext,
-      idempotencyKey: options.idempotencyKey,
+      // Prefer the runtime option; fall back to whatever the caller may
+      // have pre-populated on the context (pre-population is a supported
+      // pattern for cross-runtime delegation).
+      idempotencyKey: options.idempotencyKey ?? inputContext.idempotencyKey,
     };
     const traceId = context.traceId;
     const logger = this.config.logger!;

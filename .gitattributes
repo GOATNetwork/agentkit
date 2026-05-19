@@ -1,0 +1,13 @@
+# Normalize line endings to LF for all text files.
+# Prevents CRLF warnings on Windows checkouts and keeps diffs stable.
+* text=auto eol=lf
+
+# Binary file types — never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary

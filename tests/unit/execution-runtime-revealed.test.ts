@@ -72,4 +72,59 @@ describe('ExecutionRuntime revealedFields option', () => {
     expect(result.ok).toBe(true);
     expect((result.output as { code: string }).code).toBe('AMZN-1234');
   });
+
+  it('empty revealedFields array is equivalent to undefined (full redaction)', async () => {
+    const onActionSuccess = vi.fn();
+    const runtime = buildRuntime(onActionSuccess);
+
+    const result = await runtime.run(buildAction(), ctx, {}, { revealedFields: [] });
+
+    expect(result.ok).toBe(true);
+    const hookOutput = onActionSuccess.mock.calls[0][0].output as Record<string, unknown>;
+    expect(hookOutput.code).toBe('[REDACTED]');
+    expect(hookOutput.status).toBe('OK');
+  });
+
+  it('revealedFields entries not in sensitiveOutputFields are a no-op', async () => {
+    const onActionSuccess = vi.fn();
+    const runtime = buildRuntime(onActionSuccess);
+
+    const result = await runtime.run(
+      buildAction(),
+      ctx,
+      {},
+      { revealedFields: ['status', 'someUnrelatedField'] },
+    );
+
+    expect(result.ok).toBe(true);
+    const hookOutput = onActionSuccess.mock.calls[0][0].output as Record<string, unknown>;
+    // `code` stays redacted because it was not listed.
+    expect(hookOutput.code).toBe('[REDACTED]');
+    // `status` was not sensitive to begin with — still present unchanged.
+    expect(hookOutput.status).toBe('OK');
+  });
+
+  it('reveals multiple fields when all sensitive fields are listed', async () => {
+    const onActionSuccess = vi.fn();
+    const action: ActionDefinition<unknown, { code: string; pin: string; status: string }> = {
+      name: 'test.revealable-multi',
+      description: 'returns two sensitive fields',
+      riskLevel: 'read',
+      requiresConfirmation: false,
+      networks: ['goat-testnet'],
+      sensitiveOutputFields: ['code', 'pin'],
+      async execute() {
+        return { code: 'AMZN-1234', pin: '0987', status: 'OK' };
+      },
+    };
+    const runtime = buildRuntime(onActionSuccess);
+
+    const result = await runtime.run(action, ctx, {}, { revealedFields: ['code', 'pin'] });
+
+    expect(result.ok).toBe(true);
+    const hookOutput = onActionSuccess.mock.calls[0][0].output as Record<string, unknown>;
+    expect(hookOutput.code).toBe('AMZN-1234');
+    expect(hookOutput.pin).toBe('0987');
+    expect(hookOutput.status).toBe('OK');
+  });
 });
