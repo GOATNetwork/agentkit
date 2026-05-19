@@ -51,6 +51,10 @@ export class ViemWalletProvider implements WalletProvider {
     return this.networkName;
   }
 
+  async getChainId(): Promise<number> {
+    return await this.publicClient.getChainId();
+  }
+
   async getBalance(address?: string): Promise<string> {
     const addr = (address ?? (await this.getAddress())) as `0x${string}`;
     const balance = await this.publicClient.getBalance({ address: addr });

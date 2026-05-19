@@ -5,6 +5,20 @@ export interface WalletCallOptions {
 export interface WalletProvider {
   getAddress(): Promise<string>;
   getNetwork(): Promise<string>;
+  /**
+   * Returns the numeric chainId of the chain the wallet is currently connected to.
+   *
+   * Examples:
+   *   - `2345`  for GOAT Mainnet
+   *   - `48816` for GOAT Testnet3
+   *   - `8453`  for Base
+   *
+   * Cross-chain actions (e.g. x402 source-chain payment) compare this against the
+   * authoritative chainId from the API order. The string returned by `getNetwork()`
+   * is a logical network *key* (used by policy allowlists) and is NOT a substitute
+   * for the numeric chainId.
+   */
+  getChainId(): Promise<number>;
   getBalance(address?: string): Promise<string>;
   getErc20Balance(tokenAddress: string, owner?: string): Promise<string>;
   transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }>;

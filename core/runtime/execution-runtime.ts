@@ -30,6 +30,13 @@ export interface ExecutionOptions {
   confirmed?: boolean;
   idempotencyKey?: string;
   timeoutMs?: number;
+  /**
+   * Field names listed in `action.sensitiveOutputFields` that should NOT
+   * be redacted in onActionSuccess hook events for this single call.
+   * Undefined or empty array means default behavior (full redaction).
+   * Result.output returned to the caller is never redacted regardless.
+   */
+  revealedFields?: string[];
 }
 
 export interface ExecutionConfig {
@@ -77,10 +84,17 @@ export class ExecutionRuntime {
 
   async run<TInput, TOutput>(
     action: ActionDefinition<TInput, TOutput>,
-    context: ActionContext,
+    inputContext: ActionContext,
     input: TInput,
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult<TOutput>> {
+    // Propagate the runtime idempotency key into the ActionContext so that
+    // execute() implementations can read it back. This does not change how
+    // the idempotency cache key is computed.
+    const context: ActionContext = {
+      ...inputContext,
+      idempotencyKey: options.idempotencyKey,
+    };
     const traceId = context.traceId;
     const logger = this.config.logger!;
     const metrics = this.config.metrics!;
@@ -179,7 +193,9 @@ export class ExecutionRuntime {
           traceId,
           action: action.name,
           attempt,
-          input,
+          input: action.sensitiveInputFields?.length
+            ? redactFields(input, action.sensitiveInputFields)
+            : input,
           timestamp: Date.now(),
         });
         const timeoutMs = options.timeoutMs ?? this.config.defaultTimeoutMs;
@@ -214,12 +230,17 @@ export class ExecutionRuntime {
           );
         }
         logger.log('info', 'action run success', { traceId, action: action.name, attempt });
+        const effectiveSensitiveOutputFields = action.sensitiveOutputFields?.length
+          ? options.revealedFields?.length
+            ? action.sensitiveOutputFields.filter((f) => !options.revealedFields!.includes(f))
+            : action.sensitiveOutputFields
+          : undefined;
         this.config.hooks?.onActionSuccess?.({
           traceId,
           action: action.name,
           attempt,
-          output: action.sensitiveOutputFields?.length
-            ? redactFields(output, action.sensitiveOutputFields)
+          output: effectiveSensitiveOutputFields?.length
+            ? redactFields(output, effectiveSensitiveOutputFields)
             : output,
           durationMs: Date.now() - startedAt,
           timestamp: Date.now(),

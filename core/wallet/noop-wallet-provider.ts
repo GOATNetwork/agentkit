@@ -1,13 +1,22 @@
 import type { WalletProvider } from './wallet-provider';
 
+export interface NoopWalletProviderOptions {
+  networkName?: string;
+  chainId?: number;
+}
+
 export class NoopWalletProvider implements WalletProvider {
   private readonly address: string;
+  private readonly networkName: string;
+  private readonly chainId: number;
 
-  constructor(address = '0x0000000000000000000000000000000000000001') {
+  constructor(address = '0x0000000000000000000000000000000000000001', options: NoopWalletProviderOptions = {}) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('NoopWalletProvider must not be used in production. Provide a real WalletProvider implementation.');
     }
     this.address = address;
+    this.networkName = options.networkName ?? 'goat-testnet';
+    this.chainId = options.chainId ?? 48816;
   }
 
   async getAddress(): Promise<string> {
@@ -15,7 +24,11 @@ export class NoopWalletProvider implements WalletProvider {
   }
 
   async getNetwork(): Promise<string> {
-    return 'goat-testnet';
+    return this.networkName;
+  }
+
+  async getChainId(): Promise<number> {
+    return this.chainId;
   }
 
   async getBalance(): Promise<string> {

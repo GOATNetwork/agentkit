@@ -22,6 +22,11 @@ export class EvmWalletProvider implements WalletProvider {
     return this.networkName;
   }
 
+  async getChainId(): Promise<number> {
+    // ethers v6 returns a bigint for chainId; cast to plain number for the WalletProvider contract.
+    return Number((await this.provider.getNetwork()).chainId);
+  }
+
   async getBalance(address?: string): Promise<string> {
     const addr = address ?? (await this.getAddress());
     const balance = await this.provider.getBalance(addr);
