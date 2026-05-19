@@ -41,7 +41,18 @@ export async function confirm(prompt: string, opts: ConfirmOptions = {}): Promis
   });
   try {
     const answer = await new Promise<string>((resolve) => {
-      rl.question(`${prompt} [y/N] `, (a) => resolve(a));
+      // Ctrl+C during the prompt must exit cleanly with code 130 (128+SIGINT)
+      // rather than leaving the promise unresolved or swallowing the signal.
+      const onSigint = () => {
+        rl.close();
+        process.stderr.write('\naborted\n');
+        process.exit(130);
+      };
+      rl.once('SIGINT', onSigint);
+      rl.question(`${prompt} [y/N] `, (a) => {
+        rl.removeListener('SIGINT', onSigint);
+        resolve(a);
+      });
     });
     return answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes';
   } finally {

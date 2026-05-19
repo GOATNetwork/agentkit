@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ExitCodes,
   type ExitCode,
+  classifyExitCode,
   loadEnvFromCwd,
   runAction,
   reportResult,
@@ -263,7 +264,9 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           paymentTokenSymbol,
           amountWei,
         },
-        executionOptions: { confirmed: true },
+        executionOptions: globals.revealSecrets
+          ? { confirmed: true, revealedFields: ['secret'] }
+          : { confirmed: true },
         format: fmt,
       });
       if (!commit.result.ok || !commit.result.output) {
@@ -555,12 +558,12 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           paymentTokenSymbol: cmdOpts.payToken,
           amountWei: '0',
         },
-        { confirmed: true },
+        globals.revealSecrets ? { confirmed: true, revealedFields: ['secret'] } : { confirmed: true },
       );
       reportResult(commit, fmt);
       type CommitOutput = { commitment: `0x${string}`; secret: `0x${string}` };
       if (!commit.ok || !commit.output) {
-        process.exitCode = commit.errorCode ? ExitCodes.UNKNOWN : ExitCodes.UNKNOWN;
+        process.exitCode = classifyExitCode(commit.errorCode, commit.error);
         return;
       }
       const commitOut = commit.output as unknown as CommitOutput;
@@ -599,7 +602,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
       );
       reportResult(signed, fmt);
       if (!signed.ok) {
-        process.exitCode = ExitCodes.UNKNOWN;
+        process.exitCode = classifyExitCode(signed.errorCode, signed.error);
         return;
       }
 
@@ -622,7 +625,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         { orderId: orderOut.orderId },
       );
       reportResult(statusRes, fmt);
-      process.exitCode = statusRes.ok ? ExitCodes.SUCCESS : ExitCodes.UNKNOWN;
+      process.exitCode = statusRes.ok ? ExitCodes.SUCCESS : classifyExitCode(statusRes.errorCode, statusRes.error);
     });
 
   // -- doctor ----------------------------------------------------------------

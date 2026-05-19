@@ -336,6 +336,9 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
           limit: Number(cmdOpts.limit),
           offset: Number(cmdOpts.offset),
         },
+        executionOptions: globals.revealSecrets
+          ? { revealedFields: ['card_code', 'card_pin', 'card_link', 'card_barcode'] }
+          : undefined,
         format: fmt,
       });
       reportResult(result, fmt);
