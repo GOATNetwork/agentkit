@@ -23,12 +23,6 @@ const DEFAULT_PATH_PREFIX = '/api/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const SINGLE_FLIGHT_LOCK_TTL_MS = 30_000;
 
-interface BackendNonceResponse {
-  address: string;
-  nonce: number;
-  expire_at: number;
-}
-
 interface BackendVerifyResponse {
   token: string;
   /** Backend returns expiry in SECONDS. The adapter converts to ms before caching. */
@@ -352,15 +346,19 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
     body: unknown,
     bearer: string | undefined,
     externalSignal?: AbortSignal,
+    // Pre-serialized body. Used for /auth/verify, whose `nonce` exceeds
+    // Number.MAX_SAFE_INTEGER and must be sent as an exact JSON number
+    // literal — JSON.stringify(number) would re-round it.
+    rawBody?: string,
   ): Promise<unknown> {
     const url = this.fullUrl(path);
-    const hasBody = body !== undefined;
+    const hasBody = rawBody !== undefined || body !== undefined;
     const resp = await this.fetchWithTimeout(
       url,
       {
         method,
         headers: this.buildHeaders(hasBody, bearer),
-        body: hasBody ? JSON.stringify(body) : undefined,
+        body: rawBody ?? (body !== undefined ? JSON.stringify(body) : undefined),
       },
       externalSignal,
     );
@@ -430,31 +428,53 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
     }
 
     try {
-      const nonce = (await this.rawRequest(
-        'GET',
-        `/auth/nonce${buildQuery({ address })}`,
-        undefined,
-        undefined,
+      // The backend nonce can exceed Number.MAX_SAFE_INTEGER (observed:
+      // 3926424146173219811). Read it from the RAW response text and keep
+      // it as a string — JSON.parse would round it and the signature +
+      // verify would then use the wrong value ("nonce not found").
+      const nonceResp = await this.fetchWithTimeout(
+        this.fullUrl(`/auth/nonce${buildQuery({ address })}`),
+        { method: 'GET', headers: this.buildHeaders(false) },
         externalSignal,
-      )) as BackendNonceResponse;
+      );
+      const nonceText = await nonceResp.text();
+      if (!nonceResp.ok) {
+        throw new AgentkitRuntimeError(
+          ErrorCodes.ADAPTER_REQUEST_FAILED,
+          `giftcard GET /auth/nonce failed (${nonceResp.status})`,
+          { status: nonceResp.status, body: nonceText },
+        );
+      }
+      const nonceMatch = nonceText.match(/"nonce"\s*:\s*(\d+)/);
+      const expiryMatch = nonceText.match(/"expire_at"\s*:\s*(\d+)/);
+      if (!nonceMatch || !expiryMatch) {
+        throw new AgentkitRuntimeError(
+          ErrorCodes.ADAPTER_REQUEST_FAILED,
+          'giftcard /auth/nonce response missing nonce/expire_at',
+          { body: nonceText },
+        );
+      }
+      const nonceRaw = nonceMatch[1]; // exact digits, as a string
+      const expireAt = Number(expiryMatch[1]); // timestamp; safe as a number
 
       const domain = this.resolveAuthDomain();
       const signature = await this.authSigner.signAuth(domain, {
         address,
-        nonce: nonce.nonce,
-        expiry: nonce.expire_at,
+        nonce: nonceRaw,
+        expiry: expireAt,
       });
 
+      // Send the verify body as a raw JSON string so the exact nonce digits
+      // are preserved as a number literal (JSON.stringify(number) re-rounds).
+      const verifyBody =
+        `{"address":${JSON.stringify(address)},"nonce":${nonceRaw},"signature":${JSON.stringify(signature)}}`;
       const verify = (await this.rawRequest(
         'POST',
         '/auth/verify',
-        {
-          address,
-          nonce: nonce.nonce,
-          signature,
-        },
+        undefined,
         undefined,
         externalSignal,
+        verifyBody,
       )) as BackendVerifyResponse;
 
       const expiresAt = verify.expire_at * 1000; // seconds → milliseconds

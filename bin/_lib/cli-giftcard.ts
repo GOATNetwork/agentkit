@@ -55,13 +55,18 @@ function getNetwork(globals: GlobalOpts): 'goat-mainnet' | 'goat-testnet' {
 }
 
 function buildGateway(globals: GlobalOpts) {
-  const { authWallet } = createWalletPair({ network: getNetwork(globals), allowMock: true });
+  // authWallet signs the off-chain EIP-712 auth (domain chainId is fixed, so
+  // its connected chain is irrelevant). paymentWallet is the one that must be
+  // on the chosen --pay-chain for the on-chain ERC-20 transfer in payOrder;
+  // it comes from PAYMENT_CHAIN_RPC_URL / PAYMENT_CHAIN_ID / PAYMENT_CHAIN_PRIVATE_KEY
+  // (falling back to the auth wallet for GOAT-native single-signer flows).
+  const { authWallet, paymentWallet } = createWalletPair({ network: getNetwork(globals), allowMock: true });
   const authSigner = new Eip712AuthSigner(authWallet);
   const gateway = new HttpGiftcardGatewayAdapter({
     baseUrl: globals.apiBaseUrl ?? process.env.GIFTCARD_API_BASE_URL,
     authSigner,
   });
-  return { gateway, authWallet };
+  return { gateway, authWallet, paymentWallet };
 }
 
 export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode> {
@@ -157,7 +162,7 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
     }) => {
       const globals = getGlobals(program);
       const fmt = format(globals);
-      const { gateway, authWallet } = buildGateway(globals);
+      const { gateway, paymentWallet } = buildGateway(globals);
       const networkKey = getNetwork(globals);
       const faceValue = Number(cmdOpts.faceValue);
       const payChain = Number(cmdOpts.payChain);
@@ -243,7 +248,7 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
       reportResult(createRes.result, fmt);
 
       // payOrder
-      const payRes = await runAction(payOrderAction(gateway, authWallet), {
+      const payRes = await runAction(payOrderAction(gateway, paymentWallet), {
         network: networkKey,
         input: { orderId: orderOut.order_id },
         executionOptions: { confirmed: true },

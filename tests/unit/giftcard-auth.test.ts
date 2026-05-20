@@ -115,6 +115,61 @@ describe('HttpGiftcardGatewayAdapter auto-auth', () => {
     expect(value.nonce).toBe(42n);
   });
 
+  // Regression: production nonces exceed Number.MAX_SAFE_INTEGER. They must be
+  // read as a string from the raw body and signed/verified without rounding,
+  // otherwise the backend returns "nonce not found".
+  it('preserves a nonce larger than Number.MAX_SAFE_INTEGER (no precision loss)', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const BIG = '3926424146173219811'; // JSON.parse would round this to ...840
+    const responder = vi.fn(async (call: FetchCall): Promise<Response> => {
+      if (call.url.includes('/auth/nonce')) {
+        // Raw body with exact digits — a JS object + JSON.stringify could not represent it.
+        return new Response(`{"address":"${ADDRESS}","nonce":${BIG},"expire_at":${nowSec + 300}}`, {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (call.url.includes('/auth/verify')) {
+        return jsonResponse({ token: 'tok_big', expire_at: nowSec + 3600 });
+      }
+      if (call.url.endsWith('/orders/order-big')) {
+        return jsonResponse({
+          order_id: 'order-big',
+          status: 'PAYMENT_PENDING',
+          product_id: 'p',
+          card_brand_name: 'X',
+          country: 'US',
+          face_value: 50,
+          face_value_type: 'VARIABLE',
+          sell_price_usd: 52.5,
+          pay_chain_id: 8453,
+          pay_token_symbol: 'USDC',
+          created_at: nowSec,
+        });
+      }
+      return jsonResponse({ message: 'unknown' }, 404);
+    });
+    const { fetch: mockFetch, calls } = makeFetch(responder);
+    globalThis.fetch = mockFetch;
+
+    const wallet = fakeWallet();
+    const signer = new Eip712AuthSigner(wallet as unknown as WalletProvider);
+    const adapter = new HttpGiftcardGatewayAdapter({ baseUrl: 'https://giftcard-api.test', authSigner: signer });
+
+    await adapter.getOrder('order-big');
+
+    // Signed nonce is the EXACT bigint, not the rounded 3926424146173219840n.
+    const [, , value] = wallet.signTypedData.mock.calls[0] as [unknown, unknown, Record<string, unknown>];
+    expect(value.nonce).toBe(3926424146173219811n);
+    expect(value.nonce).not.toBe(3926424146173219840n);
+
+    // The verify body carries the exact nonce digits as a JSON number literal.
+    const verifyCall = calls.find((c) => c.url.includes('/auth/verify'));
+    expect(verifyCall).toBeDefined();
+    expect(String(verifyCall!.init.body)).toContain('"nonce":3926424146173219811');
+    expect(String(verifyCall!.init.body)).not.toContain('3926424146173219840');
+  });
+
   it('reuses cached token across subsequent protected calls (no second auth roundtrip)', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const responder = vi.fn(async (call: FetchCall): Promise<Response> => {
