@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+
+// See cli-gns.test.ts: tsx cold-start under full-suite load can exceed
+// vitest's default 5s test timeout. Give spawns generous headroom.
+vi.setConfig({ testTimeout: 30_000 });
 
 const exec = promisify(execFile);
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -17,7 +21,7 @@ async function runCli(args: readonly string[], env: NodeJS.ProcessEnv = {}): Pro
   try {
     const { stdout, stderr } = await exec('node', [BIN, ...args], {
       cwd: REPO_ROOT,
-      timeout: 10_000,
+      timeout: 25_000,
       env: { ...process.env, ...env },
     });
     return { stdout, stderr, code: 0 };

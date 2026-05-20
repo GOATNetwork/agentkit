@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+
+// Each test spawns `node bin/gns.mjs`, which cold-starts the tsx ESM loader.
+// Under full-suite parallelism that can exceed vitest's default 5s test
+// timeout, producing empty stdout (observed in CI). Give spawns generous
+// headroom; the commands themselves return in well under a second.
+vi.setConfig({ testTimeout: 30_000 });
 
 const exec = promisify(execFile);
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -17,7 +23,7 @@ async function runCli(args: readonly string[], env: NodeJS.ProcessEnv = {}): Pro
   try {
     const { stdout, stderr } = await exec('node', [BIN, ...args], {
       cwd: REPO_ROOT,
-      timeout: 10_000,
+      timeout: 25_000,
       env: { ...process.env, ...env },
     });
     return { stdout, stderr, code: 0 };

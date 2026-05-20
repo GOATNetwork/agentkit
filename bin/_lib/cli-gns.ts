@@ -186,6 +186,12 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
     .option('--url <text>', 'Set url text record')
     .option('--email <text>', 'Set email text record')
     .option('--amount-wei <wei>', 'Override max payment amount')
+    .option(
+      '--wait-timeout <sec>',
+      'Max seconds to poll for the commit reveal window (minCommitmentAge is 60s)',
+      '180',
+    )
+    .option('--poll-interval <sec>', 'Seconds between commit-readiness polls', '10')
     .action(async (
       name: string,
       cmdOpts: {
@@ -198,6 +204,8 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         url?: string;
         email?: string;
         amountWei?: string;
+        waitTimeout: string;
+        pollInterval: string;
       },
     ) => {
       const globals = getGlobals(program);
@@ -284,15 +292,43 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
       const commitOut = commit.result.output as unknown as CommitOutput;
       reportResult(commit.result, fmt);
 
-      // Wait — readiness check (single call; user is expected to wait between).
-      const wait = await runAction(waitForCommitmentAction(contracts, wallet), {
-        network: networkKey,
-        input: { commitment: commitOut.commitment },
-        format: fmt,
-      });
-      reportResult(wait.result, fmt);
-      if (wait.exitCode !== ExitCodes.SUCCESS) {
-        process.exitCode = wait.exitCode;
+      // Wait — poll the on-chain reveal window. minCommitmentAge is 60s, so a
+      // single immediate check always fails; poll until isReady or timeout.
+      const waitTimeoutMs = Math.max(0, Number(cmdOpts.waitTimeout) * 1000);
+      const pollIntervalMs = Math.max(1000, Number(cmdOpts.pollInterval) * 1000);
+      const deadline = Date.now() + waitTimeoutMs;
+      let ready = false;
+      let lastWait: Awaited<ReturnType<typeof runAction>> | undefined;
+      for (;;) {
+        lastWait = await runAction(waitForCommitmentAction(contracts, wallet), {
+          network: networkKey,
+          input: { commitment: commitOut.commitment },
+          format: fmt,
+        });
+        if (lastWait.exitCode !== ExitCodes.SUCCESS) {
+          reportResult(lastWait.result, fmt);
+          process.exitCode = lastWait.exitCode;
+          return;
+        }
+        const out = lastWait.result.output as { isReady?: boolean; isExpired?: boolean } | undefined;
+        if (out?.isExpired) {
+          status('error', 'commitment expired before reveal window opened; re-run register to start over');
+          process.exitCode = ExitCodes.CHAIN_OR_STATE;
+          return;
+        }
+        if (out?.isReady) {
+          ready = true;
+          break;
+        }
+        if (Date.now() >= deadline) break;
+        const remaining = Math.ceil((deadline - Date.now()) / 1000);
+        status('info', `commit not yet revealable; polling again in ${pollIntervalMs / 1000}s (timeout in ${remaining}s)`);
+        await new Promise((r) => setTimeout(r, Math.min(pollIntervalMs, Math.max(0, deadline - Date.now()))));
+      }
+      reportResult(lastWait!.result, fmt);
+      if (!ready) {
+        status('error', `commit reveal window did not open within ${cmdOpts.waitTimeout}s; re-run register (the commit persists on-chain up to maxCommitmentAge)`);
+        process.exitCode = ExitCodes.CHAIN_OR_STATE;
         return;
       }
 
