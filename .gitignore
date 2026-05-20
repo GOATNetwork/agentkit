@@ -3,5 +3,6 @@ dist/
 dist-manifests/
 .claude/
 .docs/
+docs/
 .env
 
