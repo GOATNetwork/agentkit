@@ -35,6 +35,33 @@ export const READINESS_SUBMIT_BUFFER_SEC = 2;
 /** Seconds in one year for `years -> duration` conversions. */
 export const YEAR_IN_SECONDS = 365n * 24n * 60n * 60n;
 
+export interface GnsPaymentToken {
+  symbol: string;
+  address: `0x${string}`;
+  decimals: number;
+}
+
+/**
+ * Payment tokens the GNS registrar accepts, per network. Verified against the
+ * live merchant config (`/payments/x402/config`) and the on-chain token list
+ * on 2026-05-20. Testnet3 currently offers only TUSDT. Callers may always
+ * override with an explicit token contract address.
+ */
+export const GNS_PAYMENT_TOKENS: Record<string, readonly GnsPaymentToken[]> = {
+  'goat-testnet': [{ symbol: 'USDT', address: '0x030B2C744Fa080D97c0033214dEF6384f763aB21', decimals: 18 }],
+  'goat-mainnet': [
+    { symbol: 'USDC', address: '0x3022b87ac063DE95b1570F46f5e470F8B53112D8', decimals: 6 },
+    { symbol: 'USDT', address: '0xE1AD845D93853fff44990aE0DcecD8575293681e', decimals: 6 },
+  ],
+};
+
+/** Resolve a `--token` symbol (USDC/USDT, optional leading T) to a known address for the network. */
+export function resolveGnsPaymentToken(network: string, symbol: string): GnsPaymentToken | undefined {
+  const list = GNS_PAYMENT_TOKENS[network] ?? [];
+  const norm = symbol.toUpperCase().replace(/^T(USD[CT])$/, '$1');
+  return list.find((t) => t.symbol === norm);
+}
+
 /**
  * Name validation regex enforced via Zod schemas.
  *

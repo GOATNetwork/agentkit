@@ -41,6 +41,7 @@ import { setProfileRecordsAction } from '../../plugins/gns/actions/set-profile-r
 import { waitForCommitmentAction } from '../../plugins/gns/actions/wait-for-commitment';
 import { x402CreateOrderAction } from '../../plugins/gns/actions/x402-create-order';
 import { x402GetOrderStatusAction } from '../../plugins/gns/actions/x402-get-order-status';
+import { GNS_PAYMENT_TOKENS, resolveGnsPaymentToken } from '../../plugins/gns/constants';
 import { x402PayOrderAction } from '../../plugins/gns/actions/x402-pay-order';
 import { x402SubmitSignatureAction } from '../../plugins/gns/actions/x402-submit-signature';
 import { EvmPayerWalletAdapter } from '../../plugins/x402/adapters/evm-payer-wallet';
@@ -245,10 +246,28 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         }
       }
 
-      // Quote price.
+      // Resolve the payment token symbol -> contract address (or use the
+      // explicit --token-contract override). The quote/currency field is a
+      // symbol, not an address, so it cannot be used as paymentTokenAddress.
+      const resolvedToken = cmdOpts.tokenContract
+        ? { address: cmdOpts.tokenContract as `0x${string}` }
+        : resolveGnsPaymentToken(networkKey, cmdOpts.token);
+      if (!resolvedToken) {
+        const known = (GNS_PAYMENT_TOKENS[networkKey] ?? []).map((t) => t.symbol).join(', ') || 'none';
+        status(
+          'error',
+          `unknown payment token "${cmdOpts.token}" on ${networkKey}; pass --token-contract <address> (known: ${known})`,
+        );
+        process.exitCode = ExitCodes.USER_INPUT;
+        return;
+      }
+      const paymentTokenAddress = resolvedToken.address;
+      const paymentTokenSymbol = cmdOpts.token;
+
+      // Quote price (with the resolved token so the fee matches).
       const quote = await runAction(estimatePriceAction(api), {
         network: networkKey,
-        input: { name, years, tokenContract: cmdOpts.tokenContract },
+        input: { name, years, tokenContract: paymentTokenAddress },
         format: fmt,
       });
       if (!quote.result.ok || !quote.result.output) {
@@ -257,8 +276,6 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         return;
       }
       const quoteOut = quote.result.output as { currency: string; totalWei: string };
-      const paymentTokenAddress = (cmdOpts.tokenContract ?? quoteOut.currency) as `0x${string}`;
-      const paymentTokenSymbol = cmdOpts.token;
       const amountWei = cmdOpts.amountWei ?? quoteOut.totalWei;
 
       // Commit.
@@ -415,8 +432,21 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
 
       const years = Number(cmdOpts.years);
       let amountWei = cmdOpts.amountWei;
-      let tokenAddress = cmdOpts.tokenContract;
-      if (!amountWei || !tokenAddress) {
+      // Resolve token symbol -> address (or use the explicit override).
+      const resolvedToken = cmdOpts.tokenContract
+        ? { address: cmdOpts.tokenContract as `0x${string}` }
+        : resolveGnsPaymentToken(networkKey, cmdOpts.token);
+      if (!resolvedToken) {
+        const known = (GNS_PAYMENT_TOKENS[networkKey] ?? []).map((t) => t.symbol).join(', ') || 'none';
+        status(
+          'error',
+          `unknown payment token "${cmdOpts.token}" on ${networkKey}; pass --token-contract <address> (known: ${known})`,
+        );
+        process.exitCode = ExitCodes.USER_INPUT;
+        return;
+      }
+      const tokenAddress = resolvedToken.address;
+      if (!amountWei) {
         const quote = await runAction(estimatePriceAction(api), {
           network: networkKey,
           input: { name, years, tokenContract: tokenAddress },
@@ -428,8 +458,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           return;
         }
         const q = quote.result.output as { currency: string; totalWei: string };
-        amountWei = amountWei ?? q.totalWei;
-        tokenAddress = (tokenAddress ?? q.currency) as `0x${string}`;
+        amountWei = q.totalWei;
       }
 
       const renew = await runAction(renewAction(contracts, wallet), {
