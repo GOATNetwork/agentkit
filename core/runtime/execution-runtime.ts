@@ -131,6 +131,13 @@ export class ExecutionRuntime {
       };
     }
 
+    // Use the Zod-parsed value so `.default()` / `.transform()` are applied
+    // before execute() (and before the input is passed to on-chain encoders).
+    // Validation above already succeeded, so this parse cannot throw.
+    if (action.zodInputSchema) {
+      input = action.zodInputSchema.parse(input) as TInput;
+    }
+
     // --- Policy evaluation (includes action.networks check) ---
     const decision = this.policy.evaluate({
       action: action as ActionDefinition,

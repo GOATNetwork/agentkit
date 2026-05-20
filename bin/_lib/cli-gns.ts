@@ -349,6 +349,19 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         return;
       }
 
+      // Approve the registrar to pull the payment token (register reverts with
+      // INVALID_INPUT on insufficient allowance, and the action does not
+      // self-approve). Skip when paying via permit (not wired in the CLI yet).
+      try {
+        status('info', `approving ${paymentTokenSymbol} ${amountWei} to controller ${contracts.controller}`);
+        const appr = await wallet.approveErc20(paymentTokenAddress, contracts.controller, amountWei);
+        status('info', `approve tx: ${appr.txHash}`);
+      } catch (err) {
+        status('error', `ERC-20 approve failed: ${(err as Error).message}`);
+        process.exitCode = ExitCodes.ADAPTER;
+        return;
+      }
+
       // Register.
       const reg = await runAction(registerAction(contracts, wallet), {
         network: networkKey,
