@@ -96,13 +96,19 @@ export function createWalletPair(opts: CreateWalletPairOptions = {}): WalletPair
       privateKey: paymentPrivateKey,
       networkName: paymentChainId ? `evm-${paymentChainId}` : 'payment-chain',
     });
-  } else if (demoMock || allowMock) {
+  } else if (demoMock) {
+    // Mock the payment wallet ONLY in explicit DEMO_MOCK. We deliberately do
+    // NOT honor `allowMock` here: read-only commands pass allowMock so they
+    // work without a key, but a real `buy` must never sign payOrder with a
+    // Noop wallet. Without a payment RPC, fall through to the real auth wallet
+    // (GOAT-native single-signer flow).
     paymentWallet = new NoopWalletProvider('0x0000000000000000000000000000000000000001', {
       networkName: 'payment-chain',
       chainId: paymentChainId ?? 8453,
     });
   } else {
-    // Fall back to the auth wallet (GOAT-native flows use a single signer).
+    // Fall back to the auth wallet (GOAT-native flows use a single signer);
+    // if auth is itself Noop (read-only, no key) the payment wallet is unused.
     paymentWallet = authWallet;
   }
 
