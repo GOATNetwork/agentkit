@@ -56,7 +56,9 @@ export interface NameDetailsResponse {
   description?: string | null;
   website?: string | null;
   email?: string | null;
-  socialLinks?: Record<string, string>;
+  // Production API returns an array of social network keys (e.g. ['twitter',
+  // 'github']); older shapes used a key→handle map. Accept both.
+  socialLinks?: string[] | Record<string, string>;
   records: NameDetailsRecord[];
 }
 

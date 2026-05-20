@@ -36,7 +36,9 @@ const outputSchema: z.ZodType<NameDetailsResponse> = z.object({
   description: z.string().nullable().optional(),
   website: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
-  socialLinks: z.record(z.string()).optional(),
+  // Live API returns an array (['twitter', 'github']); tolerate the legacy
+  // key→handle map too so a backend shape change doesn't reject valid data.
+  socialLinks: z.union([z.array(z.string()), z.record(z.string())]).optional(),
   records: z.array(recordSchema),
 });
 

@@ -343,6 +343,36 @@ describe('plugins/gns action shape contracts', () => {
     ];
     for (const d of defs) expect(d.zodOutputSchema).toBeDefined();
   });
+
+  // Regression: live testnet API returns socialLinks as an array
+  // (['twitter', 'github']); an earlier schema declared it z.record and
+  // rejected valid responses with INVALID_OUTPUT. Caught by E2E 2026-05-20.
+  it('getNameDetails output schema accepts socialLinks as a string array', () => {
+    const schema = getNameDetailsAction(api).zodOutputSchema!;
+    const live = {
+      name: 'alice.goat',
+      node: '0xabc',
+      status: 'registered',
+      lifecycleStatus: 'active',
+      owner: '0x3957...d192',
+      ownerAddress: '0x39573c7798c3d92Ec4f5e5d6A0C2f5E6B7C8d9e0',
+      resolver: '0x1cc3...e264',
+      resolverAddress: '0x1cc3496c5B8746F9d7Dc14024110878cDdBbe264',
+      expiry: '2027-05-20',
+      gracePeriodEnds: '2027-06-19',
+      tokenId: '123',
+      registrationDate: '2026-05-20',
+      primaryName: true,
+      socialLinks: ['twitter', 'github'],
+      records: [],
+    };
+    expect(schema.safeParse(live).success).toBe(true);
+    // legacy key→handle map shape still accepted
+    expect(schema.safeParse({ ...live, socialLinks: { twitter: '@a' } }).success).toBe(true);
+    // omitted is fine (optional)
+    const { socialLinks: _omit, ...withoutSocial } = live;
+    expect(schema.safeParse(withoutSocial).success).toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
