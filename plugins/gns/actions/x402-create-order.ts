@@ -59,6 +59,11 @@ export function x402CreateOrderAction(
     description: 'Create a cross-chain x402 order to register a .goat name from a non-GOAT chain',
     riskLevel: 'medium',
     requiresConfirmation: true,
+    // `secret` is the 32-byte ENS commit pre-image; keep it out of
+    // onActionStart hook payloads (an observer could otherwise derive the
+    // commitment hash and front-run the registration). Symmetric with
+    // commit (sensitiveOutputFields) and register (sensitiveInputFields).
+    sensitiveInputFields: ['secret'],
     // Wildcard at action level — runtime PolicyEngine still gates per
     // `allowedNetworks`. The action issues an HTTP call only; the actual
     // chain validation happens in `payOrder`.

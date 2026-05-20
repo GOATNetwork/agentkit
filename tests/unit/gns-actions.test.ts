@@ -323,6 +323,11 @@ describe('plugins/gns action shape contracts', () => {
     expect(def.sensitiveInputFields).toContain('secret');
   });
 
+  it("x402.createOrder declares 'secret' in sensitiveInputFields (audit F-01)", () => {
+    const def = x402CreateOrderAction(api);
+    expect(def.sensitiveInputFields).toContain('secret');
+  });
+
   it('every action exposes a zodOutputSchema', () => {
     const defs = [
       checkAvailabilityAction(api),
