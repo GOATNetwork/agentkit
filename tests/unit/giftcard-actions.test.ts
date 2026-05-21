@@ -219,6 +219,39 @@ describe('goat.giftcard.createOrder', () => {
     ).resolves.toBeDefined();
     expect(gateway.createOrder).toHaveBeenCalled();
   });
+
+  it('strips nested `card` and promotes card_code to top level (idempotency-replay leak guard)', async () => {
+    // Backend may replay an already-fulfilled order for the same
+    // idempotency_key. If that happens, the response carries
+    // `card.card_code` etc. — and we MUST not let that reach the
+    // post-success hook event in the nested form, because the
+    // runtime's redactor is shallow.
+    const replayed = {
+      ...buildOrder(),
+      status: 'FULFILLED' as const,
+      card: { card_code: 'AMZN-1234', card_pin: '0987', card_link: null, card_barcode: null },
+    };
+    const gateway: Pick<GiftcardGateway, 'createOrder'> = {
+      createOrder: vi.fn().mockResolvedValue(replayed),
+    };
+    const action = createOrderAction(gateway);
+    const out = await action.execute(
+      { ...baseCtx, idempotencyKey: 'idem-1234567890abcdef' },
+      {
+        product_id: '22222222-2222-2222-2222-222222222222',
+        face_value: 50,
+        pay_chain_id: 8453,
+        pay_token_symbol: 'USDC',
+        idempotency_key: 'idem-1234567890abcdef',
+      },
+    );
+    expect((out as { card?: unknown }).card).toBeUndefined();
+    expect((out as { card_code?: string }).card_code).toBe('AMZN-1234');
+    expect((out as { card_pin?: string }).card_pin).toBe('0987');
+    // Declare the sensitive list so a runtime hook would redact it.
+    expect(action.sensitiveOutputFields).toContain('card_code');
+    expect(action.sensitiveOutputFields).toContain('card_pin');
+  });
 });
 
 /* ---------------------------------------------------------------- */

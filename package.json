@@ -11,7 +11,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin/gns.mjs",
+    "bin/giftcard.mjs"
   ],
   "publishConfig": {
     "access": "public"
@@ -54,7 +55,8 @@
     "example:gns-x402-register": "tsx examples/gns-x402-register/index.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "build": "pnpm run clean && tsc",
+    "build": "pnpm run clean && tsc && node scripts/fix-dist-extensions.mjs",
+    "pack:smoke": "pnpm run build && node scripts/smoke-test-pack.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -63,15 +65,14 @@
     "test": "vitest run tests",
     "test:integration": "vitest run tests/integration",
     "test:redis": "node scripts/test-redis.mjs",
-    "cli:gns": "node bin/gns.mjs",
-    "cli:giftcard": "node bin/giftcard.mjs",
+    "cli:gns": "tsx bin/_lib/cli-gns.ts",
+    "cli:giftcard": "tsx bin/_lib/cli-giftcard.ts",
     "sync:skill-manifests": "node scripts/sync-skill-manifests.mjs"
   },
   "dependencies": {
     "commander": "^12.1.0",
     "ethers": "^6.15.0",
     "ioredis": "^5.7.0",
-    "tsx": "^4.20.5",
     "viem": "^2.46.3",
     "zod": "^3.24.2",
     "zod-to-json-schema": "^3.24.6"
@@ -80,6 +81,7 @@
     "@changesets/cli": "^2.30.0",
     "eslint": "^9.0.0",
     "prettier": "^3.4.0",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.0.0",
     "vitest": "^3.2.4"

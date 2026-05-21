@@ -406,12 +406,18 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
           format: fmt,
         });
         if (!createRes.result.ok || !createRes.result.output) {
-          reportResult(createRes.result, fmt);
+          reportResult(createRes, fmt, { revealAll: globals.revealSecrets });
           process.exitCode = createRes.exitCode;
           return;
         }
         const orderOut = createRes.result.output as { order_id: string };
-        reportResult(createRes.result, fmt);
+        // Pass the full RunCommandResult so the action's
+        // `sensitiveOutputFields` are honored. createOrder can replay a
+        // FULFILLED order back via backend idempotency, in which case
+        // the response carries `card_code` / `card_pin` at the top
+        // level — they must be redacted in the CLI print unless the
+        // user explicitly asked for `--reveal-secrets`.
+        reportResult(createRes, fmt, { revealAll: globals.revealSecrets });
 
         // payOrder
         const payRes = await runAction(payOrderAction(gateway, paymentWallet), {
@@ -436,14 +442,14 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
             format: fmt,
           });
           if (!getRes.result.ok) {
-            reportResult(getRes.result, fmt);
+            reportResult(getRes, fmt, { revealAll: globals.revealSecrets });
             process.exitCode = getRes.exitCode;
             return;
           }
           const order = getRes.result.output as { status: string; card_code?: string };
           lastStatus = order.status;
           if (order.status === 'FULFILLED') {
-            reportResult(getRes.result, fmt);
+            reportResult(getRes, fmt, { revealAll: globals.revealSecrets });
             if (globals.revealSecrets && order.card_code) {
               await runAction(printSecretAction(), {
                 network: networkKey,
@@ -456,7 +462,7 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
             return;
           }
           if (order.status === 'CANCELLED' || order.status === 'REFUNDED' || order.status === 'FAILED') {
-            reportResult(getRes.result, fmt);
+            reportResult(getRes, fmt, { revealAll: globals.revealSecrets });
             process.exitCode = ExitCodes.CHAIN_OR_STATE;
             return;
           }
@@ -480,7 +486,7 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
       const { gateway } = buildGateway(globals);
       const networkKey = GIFTCARD_NETWORK;
 
-      const { result, exitCode } = await runAction(getOrderAction(gateway), {
+      const run = await runAction(getOrderAction(gateway), {
         network: networkKey,
         input: { orderId },
         executionOptions: globals.revealSecrets
@@ -488,8 +494,8 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
           : undefined,
         format: fmt,
       });
-      reportResult(result, fmt);
-      process.exitCode = exitCode;
+      reportResult(run, fmt, { revealAll: globals.revealSecrets });
+      process.exitCode = run.exitCode;
     });
 
   // -- list-orders -----------------------------------------------------------
@@ -504,7 +510,7 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
       const fmt = format(globals);
       const { gateway } = buildGateway(globals);
       const networkKey = GIFTCARD_NETWORK;
-      const { result, exitCode } = await runAction(listOrdersAction(gateway), {
+      const run = await runAction(listOrdersAction(gateway), {
         network: networkKey,
         input: {
           status: cmdOpts.status,
@@ -516,8 +522,8 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
           : undefined,
         format: fmt,
       });
-      reportResult(result, fmt);
-      process.exitCode = exitCode;
+      reportResult(run, fmt, { revealAll: globals.revealSecrets });
+      process.exitCode = run.exitCode;
     });
 
   // -- doctor ----------------------------------------------------------------

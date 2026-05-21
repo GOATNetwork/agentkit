@@ -30,22 +30,23 @@ export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
   zodInputSchema?: ZodTypeAny;
   zodOutputSchema?: ZodTypeAny;
   /**
-   * Top-level field names to redact from output before passing to
-   * execution hooks (e.g. tokens, secrets). SHALLOW redaction only —
-   * nested objects are not traversed; keep secret fields at the top
-   * level of your output shape.
+   * Field names to redact from output before passing to execution hooks
+   * (e.g. tokens, secrets). Redaction is shallow with one extension:
+   * arrays of records at the top level are walked one hop, so a name
+   * like `'card_code'` reaches both `output.card_code` and
+   * `output.orders[i].card_code`. Nested objects (e.g.
+   * `output.card.card_code`) are NOT reached — keep secret fields at the
+   * top level of the record they live in.
    */
   sensitiveOutputFields?: string[];
   /**
-   * Top-level field names whose values must be redacted before being
-   * passed to onActionStart hook events. Symmetric to
-   * sensitiveOutputFields. Use for secrets that arrive via input
-   * (e.g., commit secret being chained into a register call).
+   * Field names whose values must be redacted before being passed to
+   * onActionStart hook events. Symmetric to sensitiveOutputFields and
+   * subject to the same shallow-with-array-hop rule. Use for secrets
+   * that arrive via input (e.g., commit secret chained into register).
    *
-   * SHALLOW redaction only — nested objects are not traversed.
-   * Convention: keep sensitive inputs at the top level of TInput
-   * rather than nesting them inside a context-style object, otherwise
-   * the redaction will not reach them.
+   * Convention: keep sensitive inputs at the top level of TInput rather
+   * than nesting them, otherwise redaction will not reach them.
    */
   sensitiveInputFields?: string[];
   execute: (ctx: ActionContext, input: TInput) => Promise<TOutput>;

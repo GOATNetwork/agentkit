@@ -31,7 +31,16 @@ const outputSchema = z.object({
 });
 
 type GatewaySlice = Pick<GiftcardGateway, 'getOrder'>;
-type WalletSlice = Pick<WalletProvider, 'getChainId' | 'transferErc20'>;
+/**
+ * `getChainId` is optional on `WalletProvider` (added in 0.2.x for
+ * backwards compatibility with third-party impls), but the chain-bind
+ * check below is non-negotiable, so the slice the action receives MUST
+ * supply it. Built-in providers all do; custom providers that fail to
+ * implement it will surface as a clear `INVALID_INPUT` at runtime.
+ */
+type WalletSlice = Pick<WalletProvider, 'transferErc20'> & {
+  getChainId(): Promise<number>;
+};
 
 /** Safety margin before order expiry below which we refuse to pay. */
 const EXPIRY_SAFETY_MARGIN_SECONDS = 30;
@@ -85,6 +94,16 @@ export function payOrderAction(
     zodOutputSchema: outputSchema,
     async execute(ctx, input) {
       const order = await gateway.getOrder(input.orderId, ctx.signal);
+
+      // (1) Status gate — never re-pay a non-pending order. Without this
+      //     a retry path against a FULFILLED / PAYMENT_CONFIRMED order
+      //     would re-send the ERC-20 transfer.
+      if (order.status !== 'PAYMENT_PENDING') {
+        throw new AgentkitRuntimeError(
+          ErrorCodes.INVALID_INPUT,
+          `order_not_payable: status=${order.status} (expected PAYMENT_PENDING; refuse to double-pay)`,
+        );
+      }
 
       // (2) Validate pay_amount_wei format.
       const payAmountWei = order.pay_amount_wei;

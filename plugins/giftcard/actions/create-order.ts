@@ -4,6 +4,7 @@ import { ErrorCodes } from '../../../core/errors/error-codes';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { GiftcardGateway, OrderRecord } from '../adapters/types';
 import { orderRecordSchema } from './order-schema';
+import { ORDER_SENSITIVE_FIELDS, flattenCardFields } from './order-utils';
 
 export interface CreateOrderActionInput {
   product_id: string;
@@ -66,6 +67,11 @@ export function createOrderAction(
     networks: [],
     zodInputSchema: inputSchema,
     zodOutputSchema: orderRecordSchema,
+    // Same-as-get/listOrders: if backend idempotency replays a fulfilled
+    // order for an already-seen key, the response can carry card_code /
+    // card_pin / etc. Declare them sensitive so hook events are redacted
+    // and flatten the nested `card` so shallow redaction reaches them.
+    sensitiveOutputFields: [...ORDER_SENSITIVE_FIELDS],
     async execute(ctx, input) {
       // Idempotency contract: when the caller supplies a runtime
       // idempotencyKey via ExecutionOptions, it MUST equal the action
@@ -79,7 +85,7 @@ export function createOrderAction(
           'idempotency key mismatch: ctx vs input',
         );
       }
-      return gateway.createOrder(input, ctx.signal);
+      return flattenCardFields(await gateway.createOrder(input, ctx.signal));
     },
   };
 }

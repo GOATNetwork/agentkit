@@ -31,6 +31,15 @@ const NOT_USED = (name: string) => () => {
 
 class StubApi implements GnsApiAdapter {
   submitOutcome: 'authorized' | 'failed' = 'authorized';
+  /**
+   * Lifecycle starts at PAYMENT_PENDING (so the payOrder action's
+   * status gate accepts it). Test code that needs to simulate a
+   * later state can mutate this — and the StubPayer's
+   * `transferToken` mock below flips it to PAYMENT_CONFIRMED so the
+   * subsequent getOrderStatus call in the happy path returns the
+   * expected post-pay value.
+   */
+  orderStatus: X402OrderStatusResponse['status'] = 'PAYMENT_PENDING';
   search = NOT_USED('search') as GnsApiAdapter['search'];
   details = NOT_USED('details') as GnsApiAdapter['details'];
   quote = NOT_USED('quote') as GnsApiAdapter['quote'];
@@ -42,9 +51,10 @@ class StubApi implements GnsApiAdapter {
   async getX402Order(orderId: string): Promise<X402OrderStatusResponse> {
     return {
       orderId,
-      status: 'PAYMENT_CONFIRMED',
-      txHash: '0xpayment_tx',
-      confirmedAt: Math.floor(Date.now() / 1000),
+      status: this.orderStatus,
+      txHash: this.orderStatus === 'PAYMENT_CONFIRMED' ? '0xpayment_tx' : undefined,
+      confirmedAt:
+        this.orderStatus === 'PAYMENT_CONFIRMED' ? Math.floor(Date.now() / 1000) : undefined,
       raw: fixture,
     };
   }
@@ -56,6 +66,8 @@ class StubApi implements GnsApiAdapter {
 class StubPayer implements PayerWalletAdapter {
   signed = '';
   transferred: { tokenAddress: string; to: string; amount: string } | null = null;
+  /** Set by `buildRuntime` so transferToken can flip the order lifecycle. */
+  api?: StubApi;
   async normalizeAuthorization(s: string) {
     return s;
   }
@@ -65,6 +77,7 @@ class StubPayer implements PayerWalletAdapter {
   }
   async transferToken(input: { tokenAddress: string; to: string; amount: string }) {
     this.transferred = input;
+    if (this.api) this.api.orderStatus = 'PAYMENT_CONFIRMED';
     return { txHash: '0xstub_transfer_tx' };
   }
 }
@@ -111,6 +124,11 @@ function makeSourceWallet(chainId: number): WalletProvider {
 }
 
 function buildRuntime(api: GnsApiAdapter, payer: PayerWalletAdapter, wallet: WalletProvider) {
+  if (api instanceof StubApi && payer instanceof StubPayer) {
+    // Connect payer → api so `transferToken` flips the order lifecycle
+    // and subsequent getOrderStatus returns PAYMENT_CONFIRMED.
+    payer.api = api;
+  }
   const provider = new ActionProvider();
   provider.register(x402CreateOrderAction(api));
   provider.register(x402SubmitSignatureAction(api, payer));

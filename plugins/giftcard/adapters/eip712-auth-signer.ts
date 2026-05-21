@@ -25,8 +25,21 @@ function resolveDomainFromEnv(explicit?: Partial<Eip712AuthDomain>): Eip712AuthD
     explicit?.version ?? env.GIFTCARD_AUTH_DOMAIN_VERSION ?? DEFAULT_GIFTCARD_AUTH_DOMAIN.version;
   const chainIdRaw =
     explicit?.chainId ?? env.GIFTCARD_AUTH_DOMAIN_CHAIN_ID ?? DEFAULT_GIFTCARD_AUTH_DOMAIN.chainId;
-  const chainId = typeof chainIdRaw === 'string' ? Number.parseInt(chainIdRaw, 10) : chainIdRaw;
-  if (!Number.isFinite(chainId) || chainId <= 0) {
+  let chainId: number;
+  if (typeof chainIdRaw === 'string') {
+    // Strict parse: refuse `2345abc`, `0x929`, ` 2345 `, `2345.0`, empty
+    // string, etc. `Number.parseInt` silently strips trailing garbage,
+    // which is exactly the foot-gun this regex guards against.
+    if (!/^[1-9]\d*$/.test(chainIdRaw)) {
+      throw new Error(
+        `GIFTCARD_AUTH_DOMAIN_CHAIN_ID must be a positive base-10 integer, got: ${JSON.stringify(chainIdRaw)}`,
+      );
+    }
+    chainId = Number(chainIdRaw);
+  } else {
+    chainId = chainIdRaw;
+  }
+  if (!Number.isFinite(chainId) || chainId <= 0 || !Number.isInteger(chainId)) {
     throw new Error(`GIFTCARD_AUTH_DOMAIN_CHAIN_ID must be a positive integer, got: ${chainIdRaw}`);
   }
   return { name, version, chainId };

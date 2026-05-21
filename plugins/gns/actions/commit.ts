@@ -35,9 +35,27 @@ const inputSchema = z.object({
 
 export type CommitInput = z.infer<typeof inputSchema>;
 
+/**
+ * Internal — full registration tuple including the 32-byte secret.
+ * Used by the on-chain `makeCommitment` call. NEVER returned to callers
+ * because the runtime's `sensitiveOutputFields` redaction is shallow,
+ * so a nested `secret` would slip past the redactor and leak into
+ * onActionSuccess hook events. The output shape strips it.
+ */
+interface RegistrationTuple {
+  label: string;
+  owner: `0x${string}`;
+  duration: string;
+  secret: `0x${string}`;
+  resolver: `0x${string}`;
+  data: string[];
+  reverseRecord: 0 | 1;
+  referrer: `0x${string}`;
+}
+
 export interface CommitOutput {
   commitment: `0x${string}`;
-  /** 32-byte hex secret. REDACTED in hook events via `sensitiveOutputFields`. */
+  /** 32-byte hex secret. REDACTED in hook events via top-level `sensitiveOutputFields`. */
   secret: `0x${string}`;
   amountWei: string;
   paymentToken: {
@@ -49,17 +67,13 @@ export interface CommitOutput {
   /** Unix seconds; after expiresAt the commit is dead and must be re-issued. */
   expiresAt: number;
   txHash: string;
-  /** Full registration tuple persisted for use in `register`. Mirrors the on-chain struct. */
-  registration: {
-    label: string;
-    owner: `0x${string}`;
-    duration: string;
-    secret: `0x${string}`;
-    resolver: `0x${string}`;
-    data: string[];
-    reverseRecord: 0 | 1;
-    referrer: `0x${string}`;
-  };
+  /**
+   * Registration tuple for chaining into `register`. The 32-byte `secret`
+   * is INTENTIONALLY omitted here — read it from the top-level `secret`
+   * field instead. Keeping it out of this nested object is what allows
+   * the runtime's shallow redactor to fully protect it.
+   */
+  registration: Omit<RegistrationTuple, 'secret'>;
   payment: {
     paymentToken: `0x${string}`;
     maxPaymentAmount: string;
@@ -71,12 +85,11 @@ const registrationOutputSchema = z.object({
   label: z.string(),
   owner: z.string().regex(/^0x[0-9a-fA-F]{40}$/) as z.ZodType<`0x${string}`>,
   duration: z.string(),
-  secret: z.string().regex(/^0x[0-9a-fA-F]{64}$/) as z.ZodType<`0x${string}`>,
   resolver: z.string().regex(/^0x[0-9a-fA-F]{40}$/) as z.ZodType<`0x${string}`>,
   data: z.array(z.string()),
   reverseRecord: reverseRecordSchema,
   referrer: z.string().regex(/^0x[0-9a-fA-F]{64}$/) as z.ZodType<`0x${string}`>,
-});
+}).strict();
 
 const outputSchema: z.ZodType<CommitOutput> = z.object({
   commitment: z.string().regex(/^0x[0-9a-fA-F]{64}$/) as z.ZodType<`0x${string}`>,
@@ -97,8 +110,15 @@ const outputSchema: z.ZodType<CommitOutput> = z.object({
   years: z.number().int(),
 });
 
-/** Build the Registration tuple in the order the controller ABI expects. */
-function tupleForRegistration(reg: CommitOutput['registration']): readonly [
+/**
+ * Build the Registration tuple in the order the controller ABI expects.
+ * Operates on the internal `RegistrationTuple` (which still carries
+ * `secret`) — NOT the public `CommitOutput['registration']` shape, which
+ * has the secret stripped. The register action constructs its own
+ * `RegistrationTuple` from flat inputs (including its top-level
+ * `secret`) before calling this helper.
+ */
+function tupleForRegistration(reg: RegistrationTuple): readonly [
   string,
   `0x${string}`,
   bigint,
@@ -160,7 +180,8 @@ export function commitAction(
       const duration = (BigInt(input.years) * YEAR_IN_SECONDS).toString();
       const resolverAddress = (input.resolver ?? contracts.publicResolver) as `0x${string}`;
 
-      const registration: CommitOutput['registration'] = {
+      // Internal tuple (includes secret) used only for the on-chain call.
+      const registrationFull: RegistrationTuple = {
         label,
         owner: input.owner as `0x${string}`,
         duration,
@@ -179,7 +200,7 @@ export function commitAction(
         contracts.controller,
         REGISTRAR_CONTROLLER_ABI as unknown as string[],
         'makeCommitment',
-        [tupleForRegistration(registration), tupleForPayment(payment)],
+        [tupleForRegistration(registrationFull), tupleForPayment(payment)],
       );
       const commitment = String(commitmentRaw) as `0x${string}`;
       if (!/^0x[0-9a-fA-F]{64}$/.test(commitment)) {
@@ -202,6 +223,11 @@ export function commitAction(
       // can set a polling deadline. The authoritative readiness check lives
       // in waitForCommitment and reads block.timestamp directly.
       const now = Math.floor(Date.now() / 1000);
+      // Output shape: secret is at TOP LEVEL only (where shallow redaction
+      // can reach it). The nested `registration` strips it deliberately —
+      // see RegistrationTuple JSDoc.
+      const { secret: _omitSecret, ...registrationForOutput } = registrationFull;
+      void _omitSecret;
       return {
         commitment,
         secret,
@@ -213,7 +239,7 @@ export function commitAction(
         readyAt: now + MIN_COMMITMENT_AGE_SEC,
         expiresAt: now + MAX_COMMITMENT_AGE_SEC,
         txHash,
-        registration,
+        registration: registrationForOutput,
         payment,
         years: input.years,
       };
@@ -224,3 +250,4 @@ export function commitAction(
 // Re-exported builders for the `register` action so it doesn't duplicate the
 // tuple-shape logic. Internal: not part of the public plugin API.
 export { tupleForRegistration as buildRegistrationTuple, tupleForPayment as buildPaymentTuple };
+export type { RegistrationTuple };

@@ -17,9 +17,6 @@ importers:
       ioredis:
         specifier: ^5.7.0
         version: 5.10.0
-      tsx:
-        specifier: ^4.20.5
-        version: 4.21.0
       viem:
         specifier: ^2.46.3
         version: 2.46.3(typescript@5.9.3)(zod@3.25.76)
@@ -39,6 +36,9 @@ importers:
       prettier:
         specifier: ^3.4.0
         version: 3.8.1
+      tsx:
+        specifier: ^4.20.5
+        version: 4.21.0
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

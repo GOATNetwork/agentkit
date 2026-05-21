@@ -46,6 +46,9 @@ import { x402PayOrderAction } from '../../plugins/gns/actions/x402-pay-order';
 import { x402SubmitSignatureAction } from '../../plugins/gns/actions/x402-submit-signature';
 import { EvmPayerWalletAdapter } from '../../plugins/x402/adapters/evm-payer-wallet';
 import { JsonRpcProvider, Wallet } from 'ethers';
+import { labelhash } from 'viem';
+import { assertValidName, normalizeGoatName, ZERO_ADDRESS } from '../../plugins/gns/constants';
+import { BASE_REGISTRAR_ABI } from '../../plugins/gns/adapters/contracts';
 
 interface GlobalOpts {
   apiBaseUrl?: string;
@@ -290,7 +293,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           format: fmt,
         });
         if (!commit.result.ok || !commit.result.output) {
-          reportResult(commit.result, fmt);
+          reportResult(commit, fmt, { revealAll: globals.revealSecrets });
           process.exitCode = commit.exitCode;
           return;
         }
@@ -302,7 +305,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           payment: { paymentToken: `0x${string}` };
         };
         const commitOut = commit.result.output as unknown as CommitOutput;
-        reportResult(commit.result, fmt);
+        reportResult(commit, fmt, { revealAll: globals.revealSecrets });
 
         // Wait — poll the on-chain reveal window. minCommitmentAge is 60s, so a
         // single immediate check always fails; poll until isReady or timeout.
@@ -444,6 +447,22 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         const { authWallet: wallet } = createWalletPair({ network: networkKey, allowMock: globals.dryRun === true });
 
         const years = Number(cmdOpts.years);
+        // Input-bounds validation BEFORE any chain spend. Mirrors
+        // the renewAction's Zod schema (years: 1..10, amountWei:
+        // /^\d+$/). Without these checks here, `--years 11
+        // --amount-wei 1` would pass the early CLI plumbing, take
+        // the approve tx (the first non-trivial on-chain spend),
+        // and only THEN fail inside the action's Zod validation.
+        if (!Number.isInteger(years) || years < 1 || years > 10) {
+          status('error', `--years must be an integer in [1,10], got: ${cmdOpts.years}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        if (cmdOpts.amountWei !== undefined && !/^\d+$/.test(cmdOpts.amountWei)) {
+          status('error', `--amount-wei must be a positive base-10 integer string, got: ${cmdOpts.amountWei}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
         let amountWei = cmdOpts.amountWei;
         // Resolve token symbol -> address (or use the explicit override).
         const resolvedToken = cmdOpts.tokenContract
@@ -459,6 +478,50 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           return;
         }
         const tokenAddress = resolvedToken.address;
+
+        // Preflight BEFORE we approve, since approve is the first
+        // non-trivial on-chain spend in this path. The renewAction
+        // itself also validates name shape and checks ownership
+        // (plugins/gns/actions/renew.ts:78-97), but doing it inside
+        // the action would have the agent pay an approve tx before
+        // discovering it doesn't own the name — defeating the
+        // purpose of the in-action guard.
+        //
+        // The checks below match the action's own validation:
+        //   1. assertValidName() throws AgentkitRuntimeError(INVALID_INPUT)
+        //      on malformed names.
+        //   2. baseRegistrar.ownerOf(labelhash(label)) === caller.
+        try {
+          const { fullName, label: preflightLabel } = normalizeGoatName(name);
+          assertValidName(fullName);
+          const tokenId = BigInt(labelhash(preflightLabel));
+          const ownerRaw = await wallet.callContract(
+            contracts.baseRegistrar,
+            BASE_REGISTRAR_ABI as unknown as string[],
+            'ownerOf',
+            [tokenId],
+          );
+          const renewOwner = String(ownerRaw ?? ZERO_ADDRESS).toLowerCase();
+          const caller = (await wallet.getAddress()).toLowerCase();
+          if (renewOwner === ZERO_ADDRESS || renewOwner !== caller) {
+            status(
+              'error',
+              `caller is not the name owner (name="${fullName}", owner=${renewOwner}, caller=${caller})`,
+            );
+            process.exitCode = ExitCodes.POLICY_BLOCKED;
+            return;
+          }
+        } catch (err) {
+          // assertValidName / callContract surface AgentkitRuntimeError
+          // or plain Error here; map appropriately.
+          const message = err instanceof Error ? err.message : String(err);
+          status('error', `renew preflight failed: ${message}`);
+          process.exitCode = message.includes('Invalid GNS name')
+            ? ExitCodes.USER_INPUT
+            : ExitCodes.ADAPTER;
+          return;
+        }
+
         if (!amountWei) {
           const quote = await runAction(estimatePriceAction(api), {
             network: networkKey,
@@ -472,6 +535,22 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           }
           const q = quote.result.output as { currency: string; totalWei: string };
           amountWei = q.totalWei;
+        }
+
+        // Approve the registrar to pull the payment token. The renew
+        // action (like register) requires an existing allowance and does
+        // NOT self-approve, so the CLI must do it explicitly. We are
+        // only here AFTER the preflight above confirmed the name is
+        // owned by us — so this approve will only be paid on a renew
+        // that will actually succeed.
+        try {
+          status('info', `approving ${cmdOpts.token} ${amountWei} to controller ${contracts.controller}`);
+          const appr = await wallet.approveErc20(tokenAddress, contracts.controller, amountWei);
+          status('info', `approve tx: ${appr.txHash}`);
+        } catch (err) {
+          status('error', `ERC-20 approve failed: ${(err as Error).message}`);
+          process.exitCode = ExitCodes.ADAPTER;
+          return;
         }
 
         const renew = await runAction(renewAction(contracts, wallet), {
@@ -611,9 +690,54 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           return;
         }
 
+        // Validate --pay-token-contract shape BEFORE the GOAT commit tx
+        // fires. x402-create-order's Zod schema validates this, but by
+        // then we've already burned a `commit(...)` on the GOAT chain.
+        // Refuse early on a malformed address.
+        if (!/^0x[0-9a-fA-F]{40}$/.test(cmdOpts.payTokenContract)) {
+          status(
+            'error',
+            `--pay-token-contract must be a 40-hex EVM address, got: ${cmdOpts.payTokenContract}`,
+          );
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const yearsX402 = Number(cmdOpts.years);
+        if (!Number.isInteger(yearsX402) || yearsX402 < 1 || yearsX402 > 10) {
+          status('error', `--years must be an integer in [1,10], got: ${cmdOpts.years}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+
         const goatPair = createWalletPair({ network: networkKey, allowMock: false });
         const goatWallet = goatPair.authWallet;
         const sourceWallet = goatPair.paymentWallet;
+
+        // Preflight the source wallet is actually on the chain the user
+        // declared via --pay-chain. x402-pay-order checks this, but by
+        // then the GOAT commit + x402 order + signature have all been
+        // submitted. Catching the mismatch up-front saves the user from
+        // wasting a commit on the wrong source-chain RPC.
+        if (typeof sourceWallet.getChainId === 'function') {
+          try {
+            const sourceChainId = await sourceWallet.getChainId();
+            if (sourceChainId !== payChainId) {
+              status(
+                'error',
+                `chain_mismatch: PAYMENT_CHAIN_RPC_URL reports chain ${sourceChainId}, but --pay-chain is ${payChainId}; reconcile before retrying`,
+              );
+              process.exitCode = ExitCodes.CHAIN_OR_STATE;
+              return;
+            }
+          } catch (err) {
+            status(
+              'error',
+              `failed to read source wallet chainId: ${(err as Error).message}`,
+            );
+            process.exitCode = ExitCodes.ADAPTER;
+            return;
+          }
+        }
 
         const goatPayer = new EvmPayerWalletAdapter(new Wallet(goatPrivateKey, new JsonRpcProvider(goatRpc)));
         const sourcePayer = new EvmPayerWalletAdapter(new Wallet(sourcePrivateKey, new JsonRpcProvider(sourceRpc)));
@@ -640,8 +764,9 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         const owner = (await goatWallet.getAddress()) as `0x${string}`;
         const baseCtx: ActionContext = { traceId: `cli_${randomUUID()}`, network: networkKey, now: Date.now() };
 
+        const commitActionDef = provider.get('goat.gns.commit');
         const commit = await runtime.run(
-          provider.get('goat.gns.commit'),
+          commitActionDef,
           baseCtx,
           {
             name,
@@ -653,7 +778,13 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           },
           globals.revealSecrets ? { confirmed: true, revealedFields: ['secret'] } : { confirmed: true },
         );
-        reportResult(commit, fmt);
+        // The runtime never redacts result.output; the CLI must, otherwise
+        // `--reveal-secrets` would be a no-op and the secret would always
+        // print in the clear.
+        reportResult(commit, fmt, {
+          sensitiveOutputFields: commitActionDef.sensitiveOutputFields,
+          revealAll: globals.revealSecrets,
+        });
         type CommitOutput = { commitment: `0x${string}`; secret: `0x${string}` };
         if (!commit.ok || !commit.output) {
           process.exitCode = classifyExitCode(commit.errorCode, commit.error);

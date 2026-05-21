@@ -78,8 +78,26 @@ describe('Eip712AuthSigner domain resolution', () => {
   it('throws on non-numeric chainId env override', () => {
     process.env.GIFTCARD_AUTH_DOMAIN_CHAIN_ID = 'not-a-number';
     expect(() => new Eip712AuthSigner(fakeWallet() as unknown as WalletProvider)).toThrow(
-      /must be a positive integer/,
+      /must be a positive .*integer/,
     );
+  });
+
+  it('rejects chainId env override with trailing junk (parseInt foot-gun)', () => {
+    // `Number.parseInt('2345abc', 10)` silently returns 2345 — the strict
+    // regex in resolveDomainFromEnv guards against that.
+    process.env.GIFTCARD_AUTH_DOMAIN_CHAIN_ID = '2345abc';
+    expect(() => new Eip712AuthSigner(fakeWallet() as unknown as WalletProvider)).toThrow(
+      /must be a positive .*integer/,
+    );
+  });
+
+  it('rejects negative / zero / decimal chainId env override', () => {
+    for (const bad of ['-2345', '0', '2345.0']) {
+      process.env.GIFTCARD_AUTH_DOMAIN_CHAIN_ID = bad;
+      expect(() => new Eip712AuthSigner(fakeWallet() as unknown as WalletProvider)).toThrow(
+        /must be a positive .*integer/,
+      );
+    }
   });
 
   it('signs with the resolved domain (chainId 2345 default) regardless of wallet chain', async () => {

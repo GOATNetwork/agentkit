@@ -1,3 +1,6 @@
+import { AgentkitRuntimeError } from '../../core/errors/error';
+import { ErrorCodes } from '../../core/errors/error-codes';
+
 /**
  * Cross-cutting GNS constants and validators.
  *
@@ -92,13 +95,18 @@ export function normalizeGoatName(raw: string): { fullName: string; label: strin
 }
 
 /**
- * Throws if the normalized full name fails the canonical label rules.
- * Callers (Zod refines, action bodies) use this rather than re-encoding the
- * rules so the error message stays consistent.
+ * Throws an `AgentkitRuntimeError(INVALID_INPUT)` if the normalized full
+ * name fails the canonical label rules. A plain `Error` would be
+ * mapped to `INTERNAL_ERROR` by the runtime's `normalizeError`, which
+ * (1) misleads callers and (2) makes the failure retryable (a bad name
+ * would burn the retry budget). Callers — Zod refines, action bodies —
+ * use this helper rather than re-encoding the rules so the error
+ * message and code stay consistent.
  */
 export function assertValidName(fullName: string): void {
   if (!NAME_REGEX.test(fullName)) {
-    throw new Error(
+    throw new AgentkitRuntimeError(
+      ErrorCodes.INVALID_INPUT,
       `Invalid GNS name "${fullName}": labels must be lowercase a-z/0-9/hyphens, 3+ bytes, no leading/trailing hyphen, no double hyphen, no dot inside the label`,
     );
   }

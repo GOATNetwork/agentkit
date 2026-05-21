@@ -151,6 +151,15 @@ export interface RunCommandOptions {
 export interface RunCommandResult<T = unknown> {
   result: ExecutionResult<T>;
   exitCode: ExitCode;
+  /**
+   * The action's declared sensitive output field names, propagated up
+   * so `reportResult` can apply the same shallow-with-array-hop
+   * redaction the runtime applies to hook events. Without this the CLI
+   * would print `result.output` in the clear (the SDK never redacts the
+   * caller-visible result) and the `--reveal-secrets` flag would be a
+   * no-op.
+   */
+  sensitiveOutputFields: readonly string[];
 }
 
 /** Build runtime + run a single action. Does NOT call `process.exit`; returns the exit code. */
@@ -198,18 +207,117 @@ export async function runAction<TInput, TOutput>(
     ? ExitCodes.SUCCESS
     : classifyExitCode(result.errorCode, result.error);
 
-  return { result, exitCode };
+  return {
+    result,
+    exitCode,
+    sensitiveOutputFields: action.sensitiveOutputFields ?? [],
+  };
 }
 
-/** Print the result and return the exit code. */
-export function reportResult(result: ExecutionResult<unknown>, format: OutputFormat): void {
+/**
+ * Shallow-with-array-hop redactor. Mirrors the runtime's `redactFields`
+ * contract (see `core/runtime/execution-runtime.ts`) so the CLI's
+ * print path applies the same protections the hook system applies.
+ * `revealedFields` is the per-call un-redact list (mirrors
+ * `ExecutionOptions.revealedFields`).
+ */
+function redactForReport(
+  value: unknown,
+  sensitive: readonly string[],
+  revealed: readonly string[],
+): unknown {
+  if (value == null || typeof value !== 'object' || !sensitive.length) return value;
+  const effective = sensitive.filter((f) => !revealed.includes(f));
+  if (!effective.length) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => redactForReport(item, effective, []));
+  }
+  const copy = { ...(value as Record<string, unknown>) };
+  for (const f of effective) {
+    if (f in copy) copy[f] = '[REDACTED]';
+  }
+  for (const k of Object.keys(copy)) {
+    const v = copy[k];
+    if (Array.isArray(v)) {
+      copy[k] = v.map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? redactForReport(item, effective, [])
+          : item,
+      );
+    }
+  }
+  return copy;
+}
+
+export interface ReportResultOptions {
+  /**
+   * Action-declared sensitive output field names. Pass
+   * `runResult.sensitiveOutputFields` here. Without this list the
+   * report path prints everything in the clear.
+   */
+  sensitiveOutputFields?: readonly string[];
+  /**
+   * Field names the caller explicitly wants printed unredacted
+   * (typically driven by `--reveal-secrets` plus the specific field
+   * the subcommand wants to surface, e.g. `'card_code'` for
+   * `giftcard status`).
+   */
+  revealedFields?: readonly string[];
+  /**
+   * Convenience shortcut: when true, treat ALL `sensitiveOutputFields`
+   * as revealed. Maps from the global `--reveal-secrets` flag.
+   */
+  revealAll?: boolean;
+}
+
+function isRunCommandResult(v: unknown): v is RunCommandResult {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'result' in v &&
+    'sensitiveOutputFields' in v
+  );
+}
+
+/**
+ * Print the result.
+ *
+ * Accepts either an `ExecutionResult` directly (legacy form) or a
+ * `RunCommandResult` returned by `runAction(...)`. Passing the
+ * RunCommandResult is preferred because it carries the action's
+ * declared `sensitiveOutputFields`, which `reportResult` then applies
+ * to `result.output` before printing. The SDK never redacts
+ * `result.output` itself, so without this step the CLI would print
+ * secrets in the clear and the `--reveal-secrets` flag would be a
+ * no-op.
+ */
+export function reportResult(
+  resultOrRun: ExecutionResult<unknown> | RunCommandResult,
+  format: OutputFormat,
+  options: ReportResultOptions = {},
+): void {
+  const result = isRunCommandResult(resultOrRun) ? resultOrRun.result : resultOrRun;
+  const sensitive =
+    options.sensitiveOutputFields ??
+    (isRunCommandResult(resultOrRun) ? resultOrRun.sensitiveOutputFields : []);
+  const revealed = options.revealAll ? [...sensitive] : (options.revealedFields ?? []);
+  const redact = (out: unknown): unknown =>
+    sensitive.length ? redactForReport(out, sensitive, revealed) : out;
+
   if (format === 'json') {
-    emit(result, format);
+    if (result.ok && sensitive.length) {
+      // Wrap the result so the redaction applies to `output` only and
+      // we don't mutate the original object (callers may still read
+      // result.output programmatically).
+      emit({ ...result, output: redact(result.output) }, format);
+    } else {
+      emit(result, format);
+    }
     return;
   }
   if (result.ok) {
     status('ok', `${result.action} (trace=${result.traceId}, attempts=${result.attempts})`);
-    if (result.output !== undefined) emit(result.output, 'human');
+    if (result.output !== undefined) emit(redact(result.output), 'human');
     return;
   }
   status('error', `${result.action} failed: ${result.errorCode ?? 'UNKNOWN'} — ${result.error ?? 'no message'}`);

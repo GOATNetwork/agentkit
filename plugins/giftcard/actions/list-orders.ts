@@ -5,9 +5,9 @@ import type {
   GiftcardOrderStatus,
   OrderListParams,
   OrderListResponse,
-  OrderRecord,
 } from '../adapters/types';
 import { orderRecordSchema } from './order-schema';
+import { ORDER_SENSITIVE_FIELDS, flattenCardFields } from './order-utils';
 
 export interface ListOrdersInput {
   status?: string;
@@ -33,16 +33,14 @@ const outputSchema = z.object({
 type GatewaySlice = Pick<GiftcardGateway, 'listOrders'>;
 
 /**
- * Same caveat as `getOrder` re: `sensitiveOutputFields` shallow
- * redaction not reaching nested `card.*` fields — we flatten card.* up
- * to each order's top level so the hook redaction works.
+ * Card secrets live at the TOP level of each order, never in a nested
+ * `card` object — the runtime's shallow-with-array-hop redactor walks
+ * `output.orders[i]` and zeros the names below in each element, but
+ * does NOT walk into nested objects. `flattenCardFields` (shared with
+ * createOrder / getOrder via `./order-utils`) drops the backend's
+ * nested `card` and promotes the four sensitive fields to the top
+ * level on each element.
  */
-const SENSITIVE_OUTPUT_FIELDS = [
-  'card_code',
-  'card_pin',
-  'card_link',
-  'card_barcode',
-] as const;
 
 export function listOrdersAction(
   gateway: GatewaySlice,
@@ -55,7 +53,7 @@ export function listOrdersAction(
     networks: [],
     zodInputSchema: inputSchema,
     zodOutputSchema: outputSchema,
-    sensitiveOutputFields: [...SENSITIVE_OUTPUT_FIELDS],
+    sensitiveOutputFields: [...ORDER_SENSITIVE_FIELDS],
     async execute(ctx, input) {
       const params: OrderListParams = {
         status: input.status as GiftcardOrderStatus | 'ALL' | undefined,
@@ -68,17 +66,5 @@ export function listOrdersAction(
         orders: resp.orders.map(flattenCardFields),
       };
     },
-  };
-}
-
-function flattenCardFields(order: OrderRecord): OrderRecord {
-  const card = order.card;
-  if (!card) return order;
-  return {
-    ...order,
-    card_code: card.card_code ?? undefined,
-    card_pin: card.card_pin ?? undefined,
-    card_link: card.card_link ?? undefined,
-    card_barcode: card.card_barcode ?? undefined,
   };
 }

@@ -74,6 +74,16 @@ export function x402PayOrderAction(
     async execute(ctx, input) {
       const order = await api.getX402Order(input.orderId, ctx.signal);
 
+      // Status gate — never re-pay a non-pending order. Backends that
+      // surface a lifecycle string under `order.status` must be in
+      // `PAYMENT_PENDING` for us to broadcast the source-chain transfer.
+      if (order.status && order.status !== 'PAYMENT_PENDING') {
+        throw new AgentkitRuntimeError(
+          ErrorCodes.INVALID_INPUT,
+          `order_not_payable: status=${order.status} (expected PAYMENT_PENDING; refuse to double-pay)`,
+        );
+      }
+
       // Per Codex R6 #14: enforce a strict runtime shape on `order.raw`
       // before any chain write. The status endpoint is loosely typed,
       // so each field is parsed with Zod and a missing/malformed field
@@ -116,6 +126,12 @@ export function x402PayOrderAction(
         );
       }
 
+      if (typeof wallet.getChainId !== 'function') {
+        throw new AgentkitRuntimeError(
+          ErrorCodes.INVALID_INPUT,
+          'wallet does not implement getChainId(); cross-chain x402 payOrder requires it to enforce chain binding',
+        );
+      }
       const walletChainId = await wallet.getChainId();
       if (walletChainId !== payChainId) {
         throw new AgentkitRuntimeError(

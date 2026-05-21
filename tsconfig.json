@@ -17,6 +17,7 @@
     "adapters/**/*.ts",
     "providers/**/*.ts",
     "networks/**/*.ts",
+    "bin/_lib/**/*.ts",
     "index.ts"
   ],
   "exclude": [
