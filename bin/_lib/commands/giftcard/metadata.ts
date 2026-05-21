@@ -5,11 +5,22 @@ export const GIFTCARD_CLI_METADATA: CliMetadata = {
   summary: 'Buy and manage stablecoin-paid gift cards via the GOAT giftcard gateway',
   subcommands: [
     {
+      name: 'regions',
+      summary: 'Discover live giftcard regions',
+      description: 'Probes the brand catalog and lists the country codes that currently have brands (e.g. US, CA).',
+      actions: ['goat.giftcard.listBrands'],
+      risk: 'read',
+    },
+    {
       name: 'list-brands',
       summary: 'List giftcard brands',
-      description: 'Browse giftcard brands filtered by country / category / language.',
+      description:
+        'Browse giftcard brands filtered by country / category / language. A region is required (run `regions` to discover them).',
       flags: [
-        { flag: '--country <iso2>', description: 'ISO 3166-1 alpha-2 country (e.g. US, CA)' },
+        {
+          flag: '--country <iso2>',
+          description: 'ISO 3166-1 alpha-2 country (e.g. US, CA); required when non-interactive',
+        },
         { flag: '--category <id>', description: 'Category id (e.g. shopping)' },
         { flag: '--lang <bcp47>', description: 'BCP-47 language (e.g. en, en-US)' },
       ],
@@ -40,8 +51,12 @@ export const GIFTCARD_CLI_METADATA: CliMetadata = {
       flags: [
         { flag: '--brand <id>', description: 'Brand UUID' },
         { flag: '--product <id>', description: 'Product UUID (skips brand lookup)' },
-        { flag: '--face-value <amount>', description: 'Face value in the brand\'s local currency', defaultValue: 50 },
-        { flag: '--pay-chain <chainId>', description: 'Payment chain id', defaultValue: 8453 },
+        { flag: '--face-value <amount>', description: "Face value in the brand's local currency", defaultValue: 50 },
+        {
+          flag: '--pay-chain <chainId>',
+          description: 'Payment chain id (default: GOAT 2345; omit to pick interactively)',
+          defaultValue: 2345,
+        },
         { flag: '--pay-token <symbol>', description: 'Payment token symbol (USDC or USDT)', defaultValue: 'USDC' },
         { flag: '--poll-timeout-sec <n>', description: 'Max seconds to poll for fulfillment', defaultValue: 60 },
       ],

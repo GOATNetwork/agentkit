@@ -9,8 +9,8 @@
  *
  *   - `createWalletPair()`
  *     Returns `{ authWallet, paymentWallet }` derived from environment.
- *     `authWallet` connects to GOAT (testnet by default — switches to
- *     mainnet if `GOAT_NETWORK=goat-mainnet`). `paymentWallet` connects
+ *     `authWallet` connects to GOAT (mainnet by default — switches to
+ *     testnet if `GOAT_NETWORK=goat-testnet`). `paymentWallet` connects
  *     to whichever EVM chain the user is paying from (Base, etc.) via
  *     `PAYMENT_CHAIN_RPC_URL` + `PAYMENT_CHAIN_PRIVATE_KEY` +
  *     `PAYMENT_CHAIN_ID`. If `PAYMENT_CHAIN_*` is missing, paymentWallet
@@ -48,7 +48,7 @@ export interface WalletPair {
 export interface CreateWalletPairOptions {
   /** When true and no private key is present, return Noop wallets instead of throwing. */
   allowMock?: boolean;
-  /** Override the auth network (defaults to env `GOAT_NETWORK` or 'goat-testnet'). */
+  /** Override the auth network (defaults to env `GOAT_NETWORK` or 'goat-mainnet'). */
   network?: 'goat-mainnet' | 'goat-testnet';
 }
 
@@ -58,7 +58,7 @@ function isDemoMock(): boolean {
 
 export function createWalletPair(opts: CreateWalletPairOptions = {}): WalletPair {
   const networkKey: 'goat-mainnet' | 'goat-testnet' =
-    opts.network ?? ((process.env.GOAT_NETWORK as 'goat-mainnet' | 'goat-testnet' | undefined) ?? 'goat-testnet');
+    opts.network ?? (process.env.GOAT_NETWORK as 'goat-mainnet' | 'goat-testnet' | undefined) ?? 'goat-mainnet';
   const cfg = goatNetworks[networkKey];
 
   const goatPrivateKey = process.env.GOAT_PRIVATE_KEY;
@@ -83,9 +83,7 @@ export function createWalletPair(opts: CreateWalletPairOptions = {}): WalletPair
       chainId: cfg.chainId,
     });
   } else {
-    throw new Error(
-      'createWalletPair: missing GOAT_PRIVATE_KEY (set DEMO_MOCK=true or supply a key).',
-    );
+    throw new Error('createWalletPair: missing GOAT_PRIVATE_KEY (set DEMO_MOCK=true or supply a key).');
   }
 
   // Payment wallet — distinct only when PAYMENT_CHAIN_RPC_URL is set.

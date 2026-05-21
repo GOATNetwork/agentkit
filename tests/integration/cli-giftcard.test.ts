@@ -32,11 +32,12 @@ async function runCli(args: readonly string[], env: NodeJS.ProcessEnv = {}): Pro
 }
 
 describe('agentkit-giftcard CLI', () => {
-  it('shows --help with all 7 subcommands', async () => {
+  it('shows --help with all 8 subcommands', async () => {
     const { stdout, code } = await runCli(['--help']);
     expect(code).toBe(0);
     expect(stdout).toContain('agentkit-giftcard');
     const subcommands = [
+      'regions',
       'list-brands',
       'get-brand',
       'list-chains',
@@ -51,10 +52,7 @@ describe('agentkit-giftcard CLI', () => {
   });
 
   it('doctor --json produces a structured report', async () => {
-    const { stdout, code } = await runCli(
-      ['doctor', '--json'],
-      { GIFTCARD_API_BASE_URL: 'http://127.0.0.1:1' },
-    );
+    const { stdout, code } = await runCli(['doctor', '--json'], { GIFTCARD_API_BASE_URL: 'http://127.0.0.1:1' });
     expect([0, 1]).toContain(code);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveProperty('env');
