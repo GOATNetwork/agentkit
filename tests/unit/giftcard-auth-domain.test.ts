@@ -100,6 +100,19 @@ describe('Eip712AuthSigner domain resolution', () => {
     }
   });
 
+  it('rejects chainId env override above 2^53-1 (unsafe-integer rounding foot-gun)', () => {
+    // `Number('9007199254740993')` rounds to 9007199254740992 and
+    // `Number.isInteger(...)` is still true — signing with that would bind
+    // the EIP-712 domain to a *different* chain than configured. The
+    // `Number.isSafeInteger` guard rejects exactly these non-round-trip values.
+    for (const bad of ['9007199254740993', '9007199254740999', '12345678901234567890']) {
+      process.env.GIFTCARD_AUTH_DOMAIN_CHAIN_ID = bad;
+      expect(() => new Eip712AuthSigner(fakeWallet() as unknown as WalletProvider)).toThrow(
+        /must be a positive safe integer/,
+      );
+    }
+  });
+
   it('signs with the resolved domain (chainId 2345 default) regardless of wallet chain', async () => {
     const wallet = fakeWallet();
     const signer = new Eip712AuthSigner(wallet as unknown as WalletProvider);

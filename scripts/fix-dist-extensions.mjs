@@ -37,6 +37,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -80,22 +81,79 @@ function resolveSpecifier(spec, fromFile) {
   return null;
 }
 
-// Combined regex: captures `from '...'` and `import('...')` forms.
-// Group 1 (`from` form) or 2 (`import()` form) holds the specifier.
-const SPEC_REGEX = /(?:from\s*['"])([^'"]+)(?=['"])|(?:import\s*\(\s*['"])([^'"]+)(?=['"]\s*\))/g;
+/**
+ * Locate the RAW specifier text span (between the quotes, exclusive of
+ * them) for a `preProcessFile` reference. `ref.pos` is the opening quote;
+ * we scan forward for the matching closing quote, honouring backslash
+ * escapes, and return `[contentStart, contentEnd)` over the original
+ * source.
+ *
+ * Why not trust `ref.pos`/`ref.end` arithmetic: `ref.end === ref.pos +
+ * fileName.length`, but `ref.fileName` is the DECODED specifier. When the
+ * source spells the specifier with an escape (`'./foo/bar'`,
+ * `'./fo\'o'`) the raw text is longer than the decoded name, so any
+ * `pos`/`end` + offset math slices through the middle of the literal and
+ * corrupts it. Scanning for the real closing quote is escape-safe.
+ * Returns null if `ref.pos` is not a quote (defensive — skip rather than
+ * risk a bad edit).
+ */
+function specifierContentRange(src, ref) {
+  const quote = src[ref.pos];
+  if (quote !== '"' && quote !== "'") return null;
+  for (let i = ref.pos + 1; i < src.length; i++) {
+    const c = src[i];
+    if (c === '\\') {
+      i++; // skip the escaped char
+      continue;
+    }
+    if (c === quote) return { start: ref.pos + 1, end: i };
+  }
+  return null;
+}
 
+/**
+ * Find every module-specifier span using the real TypeScript lexer
+ * (`ts.preProcessFile`) instead of a raw-text regex. `importedFiles`
+ * covers static `import`/`export ... from`, side-effect `import '...'`,
+ * dynamic `import('...')`, and inline `import("...")` type references in
+ * `.d.ts`. Because this is a true lexer pass, a `from './x'` or
+ * `import('./x')` sitting inside a string literal or comment is NOT
+ * mistaken for an import — fixing the false-positive corruption the old
+ * whole-file regex was prone to. (`referencedFiles` / triple-slash refs
+ * are intentionally ignored — they are not relative ESM specifiers we
+ * need to extend.)
+ */
 function patchFile(file) {
   const src = readFileSync(file, 'utf8');
-  let mutated = false;
-  const out = src.replace(SPEC_REGEX, (match, fromSpec, importSpec) => {
-    const spec = fromSpec ?? importSpec;
-    const replaced = resolveSpecifier(spec, file);
-    if (replaced == null) return match;
-    mutated = true;
-    return match.slice(0, match.length - spec.length) + replaced;
-  });
-  if (mutated) writeFileSync(file, out);
-  return mutated;
+  const info = ts.preProcessFile(src, /* readImportFiles */ true, /* detectJavaScriptImports */ true);
+  const edits = [];
+  for (const ref of info.importedFiles) {
+    const replaced = resolveSpecifier(ref.fileName, file);
+    if (replaced == null || replaced === ref.fileName) continue;
+    const range = specifierContentRange(src, ref);
+    if (!range) continue;
+    // `resolveSpecifier` always returns `ref.fileName` + a resolved
+    // suffix (".js", "/index.js", or "index.js"). Insert ONLY that suffix
+    // right before the closing quote and leave the RAW specifier text
+    // untouched, so backslash escapes in the source literal (e.g.
+    // `'./fo\'o'`) survive — a decoded full-span replacement would emit
+    // an unescaped quote and break the literal. Defensive fallback to a
+    // full replace if the invariant ever fails to hold.
+    if (replaced.startsWith(ref.fileName)) {
+      edits.push({ pos: range.end, end: range.end, text: replaced.slice(ref.fileName.length) });
+    } else {
+      edits.push({ pos: range.start, end: range.end, text: replaced });
+    }
+  }
+  if (!edits.length) return false;
+  // Apply right-to-left so earlier edits don't shift later offsets.
+  edits.sort((a, b) => b.pos - a.pos);
+  let out = src;
+  for (const e of edits) {
+    out = out.slice(0, e.pos) + e.text + out.slice(e.end);
+  }
+  writeFileSync(file, out);
+  return true;
 }
 
 function walk(dir) {

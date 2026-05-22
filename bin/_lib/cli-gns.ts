@@ -463,6 +463,16 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           process.exitCode = ExitCodes.USER_INPUT;
           return;
         }
+        // Validate the --token-contract override shape BEFORE any spend.
+        // It is cast straight to `0x${string}` and flows into the approve
+        // tx below; without this check a malformed override would only
+        // fail at the on-chain `approveErc20` call (a wasted tx). Mirrors
+        // the x402-register `--pay-token-contract` preflight.
+        if (cmdOpts.tokenContract !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(cmdOpts.tokenContract)) {
+          status('error', `--token-contract must be a 40-hex EVM address, got: ${cmdOpts.tokenContract}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
         let amountWei = cmdOpts.amountWei;
         // Resolve token symbol -> address (or use the explicit override).
         const resolvedToken = cmdOpts.tokenContract

@@ -74,13 +74,18 @@ export function x402PayOrderAction(
     async execute(ctx, input) {
       const order = await api.getX402Order(input.orderId, ctx.signal);
 
-      // Status gate — never re-pay a non-pending order. Backends that
-      // surface a lifecycle string under `order.status` must be in
-      // `PAYMENT_PENDING` for us to broadcast the source-chain transfer.
-      if (order.status && order.status !== 'PAYMENT_PENDING') {
+      // Status gate — never re-pay a non-pending order. FAIL CLOSED:
+      // `X402OrderLifecycle` widens to `string`, so a missing/empty
+      // `order.status` is type-valid. A truthy-gated check (`status &&
+      // status !== 'PAYMENT_PENDING'`) would let an empty/undefined
+      // status slip past and re-broadcast the source-chain transfer —
+      // a double-pay on a money path. We require an explicit
+      // `PAYMENT_PENDING`, mirroring the giftcard `payOrder` twin
+      // (plugins/giftcard/actions/pay-order.ts).
+      if (order.status !== 'PAYMENT_PENDING') {
         throw new AgentkitRuntimeError(
           ErrorCodes.INVALID_INPUT,
-          `order_not_payable: status=${order.status} (expected PAYMENT_PENDING; refuse to double-pay)`,
+          `order_not_payable: status=${order.status ?? '<missing>'} (expected PAYMENT_PENDING; refuse to double-pay)`,
         );
       }
 

@@ -207,6 +207,39 @@ describe('gns x402 cross-chain flow (fixture-backed)', () => {
     expect(payer.transferred).toBeNull();
   });
 
+  it('payOrder refuses to double-pay an already-confirmed order (status gate)', async () => {
+    const api = new StubApi();
+    api.orderStatus = 'PAYMENT_CONFIRMED';
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, {
+      orderId: fixture.orderId,
+    }, { confirmed: true });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('INVALID_INPUT');
+    expect(res.error).toMatch(/order_not_payable/);
+    expect(payer.transferred).toBeNull();
+  });
+
+  it('payOrder fails closed when order status is missing/empty (no truthy-gate bypass)', async () => {
+    // Regression: `X402OrderLifecycle` widens to `string`, so an empty
+    // status is type-valid. The previous `if (order.status && …)` gate
+    // let it slip through and re-broadcast the transfer (double-pay).
+    const api = new StubApi();
+    api.orderStatus = '' as X402OrderStatusResponse['status'];
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, {
+      orderId: fixture.orderId,
+    }, { confirmed: true });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('INVALID_INPUT');
+    expect(res.error).toMatch(/order_not_payable/);
+    expect(payer.transferred).toBeNull();
+  });
+
   it('submitSignature surfaces ADAPTER_REQUEST_FAILED when gateway reports failed', async () => {
     const api = new StubApi();
     api.submitOutcome = 'failed';

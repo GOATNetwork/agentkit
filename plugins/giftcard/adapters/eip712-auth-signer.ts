@@ -39,8 +39,16 @@ function resolveDomainFromEnv(explicit?: Partial<Eip712AuthDomain>): Eip712AuthD
   } else {
     chainId = chainIdRaw;
   }
-  if (!Number.isFinite(chainId) || chainId <= 0 || !Number.isInteger(chainId)) {
-    throw new Error(`GIFTCARD_AUTH_DOMAIN_CHAIN_ID must be a positive integer, got: ${chainIdRaw}`);
+  // `Number.isSafeInteger` (not just `isInteger`) — a digit string above
+  // 2^53 passes the regex but `Number(...)` rounds it to a *different*
+  // integer (e.g. '9007199254740993' -> 9007199254740992), and
+  // `Number.isInteger(9007199254740992)` is true. Signing with a rounded
+  // chainId would silently bind the EIP-712 domain to the wrong chain.
+  // `isSafeInteger` rejects exactly the values that cannot round-trip.
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+    throw new Error(
+      `GIFTCARD_AUTH_DOMAIN_CHAIN_ID must be a positive safe integer (<= 2^53-1), got: ${chainIdRaw}`,
+    );
   }
   return { name, version, chainId };
 }
