@@ -22,7 +22,7 @@ import {
   payOrderAction,
 } from '../../plugins/giftcard/index';
 import { printSecretAction } from '../../core/actions/print-secret';
-import { NoopWalletProvider } from '../../core/wallet/noop-wallet-provider';
+import { isNoopWallet } from '../../core/wallet/noop-wallet-provider';
 import { randomUUID } from 'node:crypto';
 
 interface GlobalOpts {
@@ -99,7 +99,12 @@ function buildGateway(globals: GlobalOpts) {
  * should `return` immediately on false.
  */
 function requireRealAuthWallet(authWallet: unknown, fmt: 'json' | 'human'): boolean {
-  if (authWallet instanceof NoopWalletProvider) {
+  // Use `isNoopWallet` rather than `instanceof NoopWalletProvider`: under
+  // tsx's `tsImport` loader the class identity may differ between the
+  // import in `wallet-from-env` and the one re-imported here, so
+  // instanceof silently returns false and the guard never fires. The
+  // duck-typed `kind === 'noop'` check survives loader duplication.
+  if (isNoopWallet(authWallet)) {
     emitError(
       fmt,
       'this subcommand authenticates with the giftcard gateway and requires a real wallet: set GOAT_PRIVATE_KEY',
@@ -264,7 +269,7 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
         if (
           !globals.dryRun &&
           process.env.DEMO_MOCK !== 'true' &&
-          (authWallet instanceof NoopWalletProvider || paymentWallet instanceof NoopWalletProvider)
+          (isNoopWallet(authWallet) || isNoopWallet(paymentWallet))
         ) {
           emitError(
             fmt,

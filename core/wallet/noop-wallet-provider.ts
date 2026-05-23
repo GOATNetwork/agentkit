@@ -6,6 +6,15 @@ export interface NoopWalletProviderOptions {
 }
 
 export class NoopWalletProvider implements WalletProvider {
+  /**
+   * Duck-typed discriminator. `instanceof NoopWalletProvider` is unreliable
+   * across module-loader boundaries (tsx's `tsImport` returns separate
+   * class identities per import chain, so the same logical class compares
+   * unequal). Callers MUST use `isNoopWallet(w)` instead of `instanceof` —
+   * the constant string survives any loader duplication.
+   */
+  readonly kind = 'noop' as const;
+
   private readonly address: string;
   private readonly networkName: string;
   private readonly chainId: number;
@@ -69,4 +78,16 @@ export class NoopWalletProvider implements WalletProvider {
       contractAddress: `0xmock_contract_${Date.now().toString(16)}`,
     };
   }
+}
+
+/**
+ * Loader-safe replacement for `wallet instanceof NoopWalletProvider`.
+ * Use this in any code that may run under tsx / multiple module graphs
+ * (CLI shims, dynamic-import entry points). See the `kind` field on
+ * `NoopWalletProvider` for the rationale.
+ */
+export function isNoopWallet(wallet: unknown): boolean {
+  return typeof wallet === 'object'
+    && wallet !== null
+    && (wallet as { kind?: unknown }).kind === 'noop';
 }
