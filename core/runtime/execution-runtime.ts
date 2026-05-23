@@ -8,12 +8,44 @@ import { InMemoryIdempotencyStore, type IdempotencyStore } from './idempotency/s
 import { NoopRuntimeMetrics, type RuntimeMetrics } from '../metrics/metrics';
 import type { ExecutionHooks } from './execution-hooks';
 
-/** Replace values of named fields with '[REDACTED]' in a shallow copy. */
+/**
+ * Replace values of named fields with '[REDACTED]' in a shallow copy.
+ *
+ * "Shallow" means: nested OBJECTS are not walked — secrets must be at the
+ * top level (or one array hop down) of the value you hand in. The
+ * redactor does, however, handle two array shapes so list-style action
+ * outputs are protected without callers having to flatten:
+ *
+ *   1. The input itself is an array of records → each record gets shallow
+ *      redaction.
+ *   2. A top-level field value is an array of records → each element gets
+ *      shallow redaction with the same field list.
+ *
+ * Anything deeper than that — a nested object inside a record, or an
+ * array of arrays — is intentionally left alone. Actions that need to
+ * protect deeper structures must either flatten them at the top level
+ * before returning, or split the secret out into its own action.
+ */
 function redactFields(obj: unknown, fields: readonly string[]): unknown {
   if (obj == null || typeof obj !== 'object' || !fields.length) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((item) => redactFields(item, fields));
+  }
   const copy = { ...(obj as Record<string, unknown>) };
   for (const f of fields) {
     if (f in copy) copy[f] = '[REDACTED]';
+  }
+  // Walk one hop into top-level arrays so e.g. `output.orders[i].card_code`
+  // is reached when `card_code` is listed as a sensitive field.
+  for (const k of Object.keys(copy)) {
+    const v = copy[k];
+    if (Array.isArray(v)) {
+      copy[k] = v.map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? redactFields(item, fields)
+          : item,
+      );
+    }
   }
   return copy;
 }
@@ -30,6 +62,16 @@ export interface ExecutionOptions {
   confirmed?: boolean;
   idempotencyKey?: string;
   timeoutMs?: number;
+  /**
+   * Field names listed in `action.sensitiveOutputFields` that should NOT
+   * be redacted in onActionSuccess hook events for this single call.
+   * Applies to OUTPUT only — there is no input-side equivalent because
+   * input hook redaction is non-negotiable for incoming secrets.
+   * Undefined or empty array means default behavior (full output
+   * redaction). Field names not in sensitiveOutputFields are a no-op.
+   * Result.output returned to the caller is never redacted regardless.
+   */
+  revealedFields?: string[];
 }
 
 export interface ExecutionConfig {
@@ -77,10 +119,26 @@ export class ExecutionRuntime {
 
   async run<TInput, TOutput>(
     action: ActionDefinition<TInput, TOutput>,
-    context: ActionContext,
+    inputContext: ActionContext,
     input: TInput,
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult<TOutput>> {
+    // Propagate the runtime idempotency key into the ActionContext so that
+    // execute() implementations can read it back. This does not change how
+    // the idempotency cache key is computed.
+    const context: ActionContext = {
+      ...inputContext,
+      // Prefer the runtime option; fall back to whatever the caller may
+      // have pre-populated on the context (pre-population is a supported
+      // pattern for cross-runtime delegation).
+      //
+      // Edge: `''` is propagated as-is (?? only short-circuits on
+      // null/undefined). Because the cache-key guard below uses a
+      // truthy check, an empty-string key disables idempotency caching
+      // entirely — that is the existing behavior; callers wanting
+      // dedup must pass a non-empty string.
+      idempotencyKey: options.idempotencyKey ?? inputContext.idempotencyKey,
+    };
     const traceId = context.traceId;
     const logger = this.config.logger!;
     const metrics = this.config.metrics!;
@@ -103,6 +161,13 @@ export class ExecutionRuntime {
         action: action.name,
         attempts: 0,
       };
+    }
+
+    // Use the Zod-parsed value so `.default()` / `.transform()` are applied
+    // before execute() (and before the input is passed to on-chain encoders).
+    // Validation above already succeeded, so this parse cannot throw.
+    if (action.zodInputSchema) {
+      input = action.zodInputSchema.parse(input) as TInput;
     }
 
     // --- Policy evaluation (includes action.networks check) ---
@@ -179,7 +244,9 @@ export class ExecutionRuntime {
           traceId,
           action: action.name,
           attempt,
-          input,
+          input: action.sensitiveInputFields?.length
+            ? redactFields(input, action.sensitiveInputFields)
+            : input,
           timestamp: Date.now(),
         });
         const timeoutMs = options.timeoutMs ?? this.config.defaultTimeoutMs;
@@ -214,12 +281,17 @@ export class ExecutionRuntime {
           );
         }
         logger.log('info', 'action run success', { traceId, action: action.name, attempt });
+        const effectiveSensitiveOutputFields = action.sensitiveOutputFields?.length
+          ? options.revealedFields?.length
+            ? action.sensitiveOutputFields.filter((f) => !options.revealedFields!.includes(f))
+            : action.sensitiveOutputFields
+          : undefined;
         this.config.hooks?.onActionSuccess?.({
           traceId,
           action: action.name,
           attempt,
-          output: action.sensitiveOutputFields?.length
-            ? redactFields(output, action.sensitiveOutputFields)
+          output: effectiveSensitiveOutputFields?.length
+            ? redactFields(output, effectiveSensitiveOutputFields)
             : output,
           durationMs: Date.now() - startedAt,
           timestamp: Date.now(),
@@ -288,16 +360,23 @@ export class ExecutionRuntime {
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, actionName: string, controller: AbortController): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        const timer = setTimeout(() => {
-          controller.abort();
-          reject(new AgentkitRuntimeError(ErrorCodes.TIMEOUT, `Action ${actionName} timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-        // Don't prevent process exit
-        if (typeof timer === 'object' && 'unref' in timer) timer.unref();
-      }),
-    ]);
+    // Capture the timer so we can clear it when `promise` wins the race.
+    // Without clearTimeout the timer keeps firing after success, calling
+    // `controller.abort()` on an already-completed attempt and producing
+    // a stale `reject()` on the abandoned inner promise. `.unref()` only
+    // saves us from blocking Node's event-loop exit; non-Node runtimes
+    // (Bun/Deno/test runners) and long-lived workers still leak the timer.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new AgentkitRuntimeError(ErrorCodes.TIMEOUT, `Action ${actionName} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      if (typeof timer === 'object' && 'unref' in (timer as object)) (timer as { unref(): void }).unref();
+    });
+    const settled = promise.finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
+    return Promise.race([settled, timeoutPromise]);
   }
 }

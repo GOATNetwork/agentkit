@@ -1,13 +1,31 @@
 import type { WalletProvider } from './wallet-provider';
 
-export class NoopWalletProvider implements WalletProvider {
-  private readonly address: string;
+export interface NoopWalletProviderOptions {
+  networkName?: string;
+  chainId?: number;
+}
 
-  constructor(address = '0x0000000000000000000000000000000000000001') {
+export class NoopWalletProvider implements WalletProvider {
+  /**
+   * Duck-typed discriminator. `instanceof NoopWalletProvider` is unreliable
+   * across module-loader boundaries (tsx's `tsImport` returns separate
+   * class identities per import chain, so the same logical class compares
+   * unequal). Callers MUST use `isNoopWallet(w)` instead of `instanceof` —
+   * the constant string survives any loader duplication.
+   */
+  readonly kind = 'noop' as const;
+
+  private readonly address: string;
+  private readonly networkName: string;
+  private readonly chainId: number;
+
+  constructor(address = '0x0000000000000000000000000000000000000001', options: NoopWalletProviderOptions = {}) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('NoopWalletProvider must not be used in production. Provide a real WalletProvider implementation.');
     }
     this.address = address;
+    this.networkName = options.networkName ?? 'goat-testnet';
+    this.chainId = options.chainId ?? 48816;
   }
 
   async getAddress(): Promise<string> {
@@ -15,7 +33,11 @@ export class NoopWalletProvider implements WalletProvider {
   }
 
   async getNetwork(): Promise<string> {
-    return 'goat-testnet';
+    return this.networkName;
+  }
+
+  async getChainId(): Promise<number> {
+    return this.chainId;
   }
 
   async getBalance(): Promise<string> {
@@ -56,4 +78,16 @@ export class NoopWalletProvider implements WalletProvider {
       contractAddress: `0xmock_contract_${Date.now().toString(16)}`,
     };
   }
+}
+
+/**
+ * Loader-safe replacement for `wallet instanceof NoopWalletProvider`.
+ * Use this in any code that may run under tsx / multiple module graphs
+ * (CLI shims, dynamic-import entry points). See the `kind` field on
+ * `NoopWalletProvider` for the rationale.
+ */
+export function isNoopWallet(wallet: unknown): boolean {
+  return typeof wallet === 'object'
+    && wallet !== null
+    && (wallet as { kind?: unknown }).kind === 'noop';
 }

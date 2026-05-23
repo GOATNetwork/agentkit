@@ -18,6 +18,7 @@ export function merchantAuthRegisterInviteAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    sensitiveInputFields: ['password'],
     sensitiveOutputFields: ['access_token', 'refresh_token'],
     async execute(ctx, input) {
       return client.post('/merchant/v1/auth/register/invite', input, { signal: ctx.signal });

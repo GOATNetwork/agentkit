@@ -14,6 +14,8 @@ export function merchantApiKeysRotateAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    // Backend returns the freshly minted secret once; keep it out of hooks/logs.
+    sensitiveOutputFields: ['api_secret', 'api_key', 'secret'],
     async execute(ctx) {
       return client.post('/merchant/v1/api-keys/rotate', undefined, { signal: ctx.signal, accessToken: ctx.accessToken });
     },

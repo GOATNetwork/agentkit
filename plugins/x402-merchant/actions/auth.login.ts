@@ -17,6 +17,7 @@ export function merchantAuthLoginAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    sensitiveInputFields: ['password'],
     sensitiveOutputFields: ['access_token', 'refresh_token'],
     async execute(ctx, input) {
       return client.post('/merchant/v1/auth/login', input, { signal: ctx.signal });

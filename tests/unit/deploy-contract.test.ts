@@ -6,6 +6,7 @@ function mockWallet(overrides: Partial<WalletProvider> = {}): WalletProvider {
   return {
     getAddress: vi.fn().mockResolvedValue('0xABCD'),
     getNetwork: vi.fn().mockResolvedValue('goat-testnet'),
+    getChainId: vi.fn().mockResolvedValue(48816),
     getBalance: vi.fn().mockResolvedValue('1000'),
     getErc20Balance: vi.fn().mockResolvedValue('500'),
     transferNative: vi.fn().mockResolvedValue({ txHash: '0xtx' }),

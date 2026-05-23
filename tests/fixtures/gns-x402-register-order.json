@@ -1,0 +1,37 @@
+{
+  "_comment": "Frozen X402OrderResponse fixture. Synthesised from plugins/gns/adapters/types.ts and the goat-ens backend payments.service.ts return shape (no live spec file exists). Used by tests/integration/gns-x402-flow.test.ts to assert the createOrder -> submitSignature -> payOrder -> getOrderStatus flow.",
+  "orderId": "register:alice.goat:0x39573c7798c3d92ec4f5e5d6a0c2f5e6b7c8d9e0:1716192000000",
+  "flow": "ERC20_3009",
+  "payToAddress": "0x000000000000000000000000000000000000bEEF",
+  "expiresAt": 9999999999,
+  "chainId": 8453,
+  "payChainId": 8453,
+  "tokenSymbol": "USDC",
+  "tokenContract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "fromAddress": "0x39573c7798c3d92Ec4f5e5d6A0C2f5E6B7C8d9e0",
+  "amountWei": "3000000",
+  "callbackCalldata": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "calldataSignRequest": {
+    "domain": {
+      "name": "GoatX402",
+      "version": "1",
+      "chainId": 48816,
+      "verifyingContract": "0xB12e68Dad886477852CC141beb3961D9C20580cA"
+    },
+    "types": {
+      "Eip3009CallbackData": [
+        { "name": "payer", "type": "address" },
+        { "name": "amount", "type": "uint256" },
+        { "name": "orderId", "type": "string" },
+        { "name": "callbackCalldata", "type": "bytes" }
+      ]
+    },
+    "primaryType": "Eip3009CallbackData",
+    "message": {
+      "payer": "0x39573c7798c3d92Ec4f5e5d6A0C2f5E6B7C8d9e0",
+      "amount": "3000000",
+      "orderId": "register:alice.goat:0x39573c7798c3d92ec4f5e5d6a0c2f5e6b7c8d9e0:1716192000000",
+      "callbackCalldata": "0x0000000000000000000000000000000000000000000000000000000000000001"
+    }
+  }
+}

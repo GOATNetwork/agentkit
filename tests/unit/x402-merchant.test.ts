@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   merchantAuthRegisterAction,
   merchantAuthRegisterInviteAction,
@@ -50,6 +50,31 @@ function mockClient(): MerchantPortalClient & {
     getAccessToken: vi.fn(),
   };
 }
+
+// Regression: credential redaction (audit consensus round, 2026-05-20).
+// Sensitive inputs/outputs on auth + key-rotation + webhook actions must be
+// declared so the runtime redacts them from onActionStart/onActionSuccess hooks.
+describe('merchant credential redaction', () => {
+  const c = mockClient();
+  it('auth.login redacts password input', () => {
+    expect(merchantAuthLoginAction(c).sensitiveInputFields).toContain('password');
+  });
+  it('auth.register redacts password input', () => {
+    expect(merchantAuthRegisterAction(c).sensitiveInputFields).toContain('password');
+  });
+  it('auth.register-invite redacts password input', () => {
+    expect(merchantAuthRegisterInviteAction(c).sensitiveInputFields).toContain('password');
+  });
+  it('auth.refresh redacts refresh_token input', () => {
+    expect(merchantAuthRefreshAction(c).sensitiveInputFields).toContain('refresh_token');
+  });
+  it('api-keys.rotate redacts the minted secret output', () => {
+    expect(merchantApiKeysRotateAction(c).sensitiveOutputFields).toContain('api_secret');
+  });
+  it('webhooks.create redacts the signing secret output', () => {
+    expect(merchantWebhooksCreateAction(c).sensitiveOutputFields).toContain('secret');
+  });
+});
 
 /** Context without accessToken — verifies fallback path. */
 const ctx = { traceId: 't1', network: 'goat-mainnet', now: Date.now() };

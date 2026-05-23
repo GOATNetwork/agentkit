@@ -22,6 +22,31 @@ export class EvmWalletProvider implements WalletProvider {
     return this.networkName;
   }
 
+  async getChainId(): Promise<number> {
+    // ethers v6 returns a bigint for chainId; cast to plain number for the WalletProvider contract.
+    return Number((await this.provider.getNetwork()).chainId);
+  }
+
+  /**
+   * Read the latest block's timestamp (Unix seconds) from the underlying provider.
+   *
+   * Used by time-gated read actions (e.g. GNS `waitForCommitment`) that must
+   * compare against on-chain `block.timestamp` rather than wall-clock time —
+   * the on-chain commit window enforcement uses `block.timestamp` and the
+   * local clock can drift arbitrarily from miners.
+   *
+   * Not part of the base `WalletProvider` interface yet: only EVM-backed
+   * providers can satisfy it. Actions that need this capability narrow-cast
+   * to `EvmWalletProvider` and throw `INVALID_INPUT` otherwise.
+   */
+  async getLatestBlockTimestamp(): Promise<number> {
+    const block = await this.provider.getBlock('latest');
+    if (!block) {
+      throw new Error('EvmWalletProvider.getLatestBlockTimestamp: provider returned null for latest block');
+    }
+    return Number(block.timestamp);
+  }
+
   async getBalance(address?: string): Promise<string> {
     const addr = address ?? (await this.getAddress());
     const balance = await this.provider.getBalance(addr);
@@ -42,12 +67,25 @@ export class EvmWalletProvider implements WalletProvider {
   private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
     if (!signal) return promise;
     this.throwIfAborted(signal);
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('Operation aborted')), { once: true });
-      }),
-    ]);
+    return new Promise<T>((resolve, reject) => {
+      // `{ once: true }` only auto-removes after the listener fires. When
+      // `promise` wins the race the listener stays attached until the signal
+      // is aborted; a long-lived signal reused across many wallet calls
+      // would then trip Node's MaxListenersExceededWarning. Detach
+      // explicitly on settle.
+      const onAbort = (): void => reject(new Error('Operation aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    });
   }
 
   async transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
