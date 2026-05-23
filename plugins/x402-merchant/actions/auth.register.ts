@@ -20,6 +20,7 @@ export function merchantAuthRegisterAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    sensitiveInputFields: ['password'],
     async execute(ctx, input) {
       return client.post('/merchant/v1/auth/register', input, { signal: ctx.signal });
     },

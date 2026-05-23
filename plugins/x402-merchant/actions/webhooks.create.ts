@@ -17,6 +17,8 @@ export function merchantWebhooksCreateAction(
     requiresConfirmation: true,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
+    // Backend returns the webhook signing secret once; keep it out of hooks/logs.
+    sensitiveOutputFields: ['secret', 'signing_secret'],
     async execute(ctx, input) {
       return client.post('/merchant/v1/webhooks', input, { signal: ctx.signal, accessToken: ctx.accessToken });
     },

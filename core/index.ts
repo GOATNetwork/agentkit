@@ -28,3 +28,5 @@ export { EvmWalletProvider } from './wallet/evm-wallet-provider';
 export { NoopWalletProvider } from './wallet/noop-wallet-provider';
 export { ViemWalletProvider } from './wallet/viem-wallet-provider';
 export { WalletProviderPayerAdapter, WalletProviderReadAdapter } from './wallet/compat';
+export { printSecretAction } from './actions/print-secret';
+export type { PrintSecretInput, PrintSecretOutput } from './actions/print-secret';
