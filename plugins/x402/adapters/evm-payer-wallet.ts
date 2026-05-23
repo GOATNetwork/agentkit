@@ -31,12 +31,25 @@ export class EvmPayerWalletAdapter implements PayerWalletAdapter {
   private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
     if (!signal) return promise;
     if (signal.aborted) throw new Error('Operation aborted');
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('Operation aborted')), { once: true });
-      }),
-    ]);
+    // `{ once: true }` only auto-removes after the listener fires. When
+    // `promise` wins the race the listener stays attached until the signal
+    // is aborted; a long-lived signal reused across many payer calls
+    // would then trip Node's MaxListenersExceededWarning. Detach
+    // explicitly on settle — same pattern as core/wallet/{evm,viem}-wallet-provider.ts.
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = (): void => reject(new Error('Operation aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    });
   }
 
   async transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult> {
