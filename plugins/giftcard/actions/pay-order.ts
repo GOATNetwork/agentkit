@@ -46,6 +46,20 @@ type WalletSlice = Pick<WalletProvider, 'transferErc20'> & {
 const EXPIRY_SAFETY_MARGIN_SECONDS = 30;
 
 /**
+ * Per-orderId single-flight: collapses concurrent payOrder calls for the
+ * same orderId into one execution. The status-only gate at step (1) is
+ * TOCTOU under concurrency — two callers can both observe PAYMENT_PENDING
+ * before either transfer settles, and both would then broadcast the
+ * ERC-20 transfer (double-pay). The Map below holds the in-flight
+ * promise so concurrent callers reuse the same execution; subsequent
+ * (sequential) retries hit the status gate which by then reflects the
+ * post-pay state. Process-local only — multi-process exclusion still
+ * requires backend idempotency, but this closes the in-process race
+ * that the runtime cache misses when callers omit `idempotencyKey`.
+ */
+const inflight = new Map<string, Promise<PayOrderOutput>>();
+
+/**
  * `goat.giftcard.payOrder` — executes the ERC-20 transfer that pays
  * for a previously-created order.
  *
@@ -93,6 +107,9 @@ export function payOrderAction(
     zodInputSchema: inputSchema,
     zodOutputSchema: outputSchema,
     async execute(ctx, input) {
+      const existing = inflight.get(input.orderId);
+      if (existing) return existing;
+      const promise = (async (): Promise<PayOrderOutput> => {
       const order = await gateway.getOrder(input.orderId, ctx.signal);
 
       // (1) Status gate — never re-pay a non-pending order. Without this
@@ -167,6 +184,11 @@ export function payOrderAction(
         payChainId: order.pay_chain_id,
         payAmountWei,
       };
+      })().finally(() => {
+        inflight.delete(input.orderId);
+      });
+      inflight.set(input.orderId, promise);
+      return promise;
     },
   };
 }

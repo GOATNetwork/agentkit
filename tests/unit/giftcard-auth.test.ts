@@ -372,6 +372,72 @@ describe('InMemoryAuthCache TTL semantics', () => {
 });
 
 /* ---------------------------------------------------------------- */
+/*  Redis lock degraded paths                                       */
+/* ---------------------------------------------------------------- */
+
+describe('HttpGiftcardGatewayAdapter Redis lock', () => {
+  let originalFetch: typeof fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('skips the cache-poll wait when redis.set THROWS (Redis outage)', async () => {
+    // Regression: a Redis outage used to be treated as "lost the NX race"
+    // and the adapter would wait ~30s on waitForCachedToken before
+    // falling through to the auth flow. With the fix, redis.set throwing
+    // is recognized as "Redis unreachable" and we skip straight to the
+    // auth roundtrip.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const responder = vi.fn(async (call: FetchCall): Promise<Response> => {
+      if (call.url.includes('/auth/nonce')) {
+        return jsonResponse({ address: ADDRESS, nonce: 5, expire_at: nowSec + 300 });
+      }
+      if (call.url.includes('/auth/verify')) {
+        return jsonResponse({ token: 'tok_outage', expire_at: nowSec + 3600 });
+      }
+      if (call.url.endsWith('/orders/o1')) {
+        return jsonResponse({
+          order_id: 'o1', status: 'PAYMENT_PENDING', product_id: 'p',
+          card_brand_name: 'X', country: 'US', face_value: 1,
+          face_value_type: 'VARIABLE', sell_price_usd: 1, pay_chain_id: 8453,
+          pay_token_symbol: 'USDC', created_at: nowSec,
+        });
+      }
+      return jsonResponse({ message: 'unknown' }, 404);
+    });
+    const { fetch: mockFetch } = makeFetch(responder);
+    globalThis.fetch = mockFetch;
+
+    const redis = {
+      set: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+      del: vi.fn().mockResolvedValue(0),
+      get: vi.fn().mockResolvedValue(null),
+    };
+    const wallet = fakeWallet();
+    const signer = new Eip712AuthSigner(wallet as unknown as WalletProvider);
+    const adapter = new HttpGiftcardGatewayAdapter({
+      baseUrl: 'https://giftcard-api.test',
+      authSigner: signer,
+      redis,
+    });
+
+    const start = Date.now();
+    await adapter.getOrder('o1');
+    const elapsed = Date.now() - start;
+
+    // Must complete promptly — the cache-poll path would have taken
+    // ~30s. Give a generous 2s budget for CI flakiness.
+    expect(elapsed).toBeLessThan(2000);
+    expect(redis.set).toHaveBeenCalledTimes(1);
+    // We never tried to release a lock we never held.
+    expect(redis.del).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------------------------------------------------------- */
 /*  AuthSigner contract                                             */
 /* ---------------------------------------------------------------- */
 

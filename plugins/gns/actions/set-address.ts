@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { encodeFunctionData, hexToBytes, isHex, namehash, toHex } from 'viem';
+import { encodeFunctionData, hexToBytes, isHex, labelhash, namehash, toHex } from 'viem';
 import type { ActionDefinition } from '../../../core/schema/action';
 import { AgentkitRuntimeError } from '../../../core/errors/error';
 import { ErrorCodes } from '../../../core/errors/error-codes';
@@ -7,6 +7,7 @@ import { evmAddress } from '../../../core/schema/validators';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
 import { ZERO_ADDRESS, assertValidName, normalizeGoatName } from '../constants';
 import {
+  BASE_REGISTRAR_ABI,
   ENS_REGISTRY_ABI,
   PUBLIC_RESOLVER_ABI,
   type GnsContractRegistry,
@@ -98,40 +99,55 @@ export function setAddressAction(
     zodInputSchema: inputSchema,
     zodOutputSchema: outputSchema,
     async execute(ctx, input) {
-      const { fullName } = normalizeGoatName(input.name);
+      const { fullName, label } = normalizeGoatName(input.name);
       assertValidName(fullName);
       const node = namehash(fullName);
+      const tokenId = BigInt(labelhash(label));
       const caller = await wallet.getAddress();
 
-      // Ownership / operator preflight (matches setProfileRecords).
-      const ownerRaw = await wallet.callContract(
-        contracts.ensRegistry,
-        ENS_REGISTRY_ABI as unknown as string[],
-        'owner',
-        [node],
+      // Authoritative ownership via the BaseRegistrar NFT (matches `renew`).
+      // ensRegistry.owner(node) can return the BaseRegistrar/NameWrapper
+      // contract when `reclaim` has not been called, falsely locking out
+      // legitimate owners.
+      const nftOwnerRaw = await wallet.callContract(
+        contracts.baseRegistrar,
+        BASE_REGISTRAR_ABI as unknown as string[],
+        'ownerOf',
+        [tokenId],
       );
-      const owner = String(ownerRaw ?? ZERO_ADDRESS);
-      if (owner === ZERO_ADDRESS) {
+      const nftOwner = String(nftOwnerRaw ?? ZERO_ADDRESS);
+      if (nftOwner.toLowerCase() === ZERO_ADDRESS) {
         throw new AgentkitRuntimeError(
           ErrorCodes.POLICY_BLOCKED,
           `name has no on-chain owner; cannot set address records (name="${fullName}")`,
         );
       }
-      const isOwner = owner.toLowerCase() === caller.toLowerCase();
+      const isOwner = nftOwner.toLowerCase() === caller.toLowerCase();
       let isOperator = false;
       if (!isOwner) {
-        const approvedRaw = await wallet.callContract(
+        // Fall back to ENS-registry operator delegation: the resolver
+        // enforces this on-chain, so the preflight mirrors it.
+        const registryOwnerRaw = await wallet.callContract(
           contracts.ensRegistry,
           ENS_REGISTRY_ABI as unknown as string[],
-          'isApprovedForAll',
-          [owner, caller],
+          'owner',
+          [node],
         );
-        isOperator = Boolean(approvedRaw);
+        const registryOwner = String(registryOwnerRaw ?? ZERO_ADDRESS);
+        if (registryOwner.toLowerCase() !== ZERO_ADDRESS) {
+          const approvedRaw = await wallet.callContract(
+            contracts.ensRegistry,
+            ENS_REGISTRY_ABI as unknown as string[],
+            'isApprovedForAll',
+            [registryOwner, caller],
+          );
+          isOperator = Boolean(approvedRaw);
+        }
       }
       if (!isOwner && !isOperator) {
         throw new AgentkitRuntimeError(
           ErrorCodes.POLICY_BLOCKED,
-          `caller is neither owner nor approved operator for "${fullName}"`,
+          `caller is neither owner nor approved operator for "${fullName}" (nftOwner=${nftOwner}, caller=${caller})`,
         );
       }
 

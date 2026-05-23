@@ -10,6 +10,15 @@ export class EvmPayerWalletAdapter implements PayerWalletAdapter {
     return input.startsWith('sig:') ? input.slice(4) : input;
   }
 
+  async getChainId(): Promise<number> {
+    const provider = this.signer.provider;
+    if (!provider) {
+      throw new Error('EvmPayerWalletAdapter signer has no provider; cannot determine chainId');
+    }
+    const net = await provider.getNetwork();
+    return Number(net.chainId);
+  }
+
   async signCalldataTypedData(request: CalldataSignRequest): Promise<string> {
     const signature = await this.signer.signTypedData(
       request.domain,

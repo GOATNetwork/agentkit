@@ -28,6 +28,16 @@ const outputSchema: z.ZodType<X402PayOrderOutput> = z.object({
 });
 
 /**
+ * Per-orderId single-flight (see giftcard payOrder for the same pattern).
+ * The status gate at L85 is TOCTOU under concurrency — without this Map
+ * two concurrent calls for the same orderId both observe PAYMENT_PENDING
+ * and both broadcast the source-chain transfer (double-pay on a money
+ * path). Subsequent (sequential) retries hit the status gate, which by
+ * then reflects the post-pay state.
+ */
+const inflight = new Map<string, Promise<X402PayOrderOutput>>();
+
+/**
  * `goat.gns.x402.payOrder` — actually pay the source-chain ERC-20 transfer
  * that backs the x402 callback signature.
  *
@@ -72,6 +82,9 @@ export function x402PayOrderAction(
     zodInputSchema: inputSchema,
     zodOutputSchema: outputSchema,
     async execute(ctx, input) {
+      const existing = inflight.get(input.orderId);
+      if (existing) return existing;
+      const promise = (async (): Promise<X402PayOrderOutput> => {
       const order = await api.getX402Order(input.orderId, ctx.signal);
 
       // Status gate — never re-pay a non-pending order. FAIL CLOSED:
@@ -145,12 +158,34 @@ export function x402PayOrderAction(
         );
       }
 
+      // Bind chain to the signer that actually broadcasts the transfer.
+      // The wallet check above validates the adjacent WalletProvider, but
+      // `payer` may wrap a different signer; if `payer.getChainId()` is
+      // implemented (built-in `EvmPayerWalletAdapter` does), assert it
+      // matches too — otherwise tokens fly out on whatever chain the
+      // payer's signer is connected to (potentially a wrong-chain
+      // surprise or a non-existent token contract).
+      if (typeof payer.getChainId === 'function') {
+        const payerChainId = await payer.getChainId();
+        if (payerChainId !== payChainId) {
+          throw new AgentkitRuntimeError(
+            ErrorCodes.INVALID_INPUT,
+            `chain_mismatch: payer on chain ${payerChainId}, order requires ${payChainId}; payer and wallet must both target the source chain`,
+          );
+        }
+      }
+
       const { txHash } = await payer.transferToken(
         { tokenAddress: tokenContract, to: payToAddress, amount: amountWei },
         ctx.signal,
       );
 
       return { orderId: input.orderId, txHash, payChainId, amountWei };
+      })().finally(() => {
+        inflight.delete(input.orderId);
+      });
+      inflight.set(input.orderId, promise);
+      return promise;
     },
   };
 }

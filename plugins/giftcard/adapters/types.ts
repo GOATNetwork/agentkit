@@ -262,4 +262,12 @@ export interface GiftcardRedisClient {
     flag: 'NX',
   ): Promise<'OK' | null>;
   del(key: string): Promise<number>;
+  /**
+   * Optional. When present, the adapter uses GET+DEL as a best-effort
+   * check-and-delete on lock release, so a process whose TTL has expired
+   * does not delete the lock another process has since acquired. ioredis
+   * exposes `get` natively; mock/custom clients may omit it (the release
+   * then becomes a no-op and the TTL reaps the lock).
+   */
+  get?(key: string): Promise<string | null>;
 }

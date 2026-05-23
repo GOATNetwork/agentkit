@@ -75,6 +75,14 @@ function buildGateway(globals: GlobalOpts) {
   // on the chosen --pay-chain for the on-chain ERC-20 transfer in payOrder;
   // it comes from PAYMENT_CHAIN_RPC_URL / PAYMENT_CHAIN_ID / PAYMENT_CHAIN_PRIVATE_KEY
   // (falling back to the auth wallet for GOAT-native single-signer flows).
+  //
+  // `allowMock: true` lets unauthenticated subcommands (regions,
+  // list-brands, etc.) run without GOAT_PRIVATE_KEY. Subcommands that
+  // actually call authenticated endpoints (status, list-orders, buy)
+  // MUST additionally reject a NoopWalletProvider via
+  // `requireRealAuthWallet` below — otherwise the gateway signs
+  // /auth/verify with a stub signature, which either fails opaquely or
+  // (under a lax backend) returns data tied to a fixed mock address.
   const { authWallet, paymentWallet } = createWalletPair({ network: GIFTCARD_NETWORK, allowMock: true });
   const authSigner = new Eip712AuthSigner(authWallet);
   const gateway = new HttpGiftcardGatewayAdapter({
@@ -82,6 +90,24 @@ function buildGateway(globals: GlobalOpts) {
     authSigner,
   });
   return { gateway, authWallet, paymentWallet };
+}
+
+/**
+ * Refuse to run an authenticated giftcard subcommand with a mock auth
+ * wallet. Returns `true` if the wallet is real; otherwise emits a
+ * clear error, sets process.exitCode, and returns `false` — caller
+ * should `return` immediately on false.
+ */
+function requireRealAuthWallet(authWallet: unknown, fmt: 'json' | 'human'): boolean {
+  if (authWallet instanceof NoopWalletProvider) {
+    emitError(
+      fmt,
+      'this subcommand authenticates with the giftcard gateway and requires a real wallet: set GOAT_PRIVATE_KEY',
+    );
+    process.exitCode = ExitCodes.USER_INPUT;
+    return false;
+  }
+  return true;
 }
 
 export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode> {
@@ -483,7 +509,8 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
     .action(async (orderId: string) => {
       const globals = getGlobals(program);
       const fmt = format(globals);
-      const { gateway } = buildGateway(globals);
+      const { gateway, authWallet } = buildGateway(globals);
+      if (!requireRealAuthWallet(authWallet, fmt)) return;
       const networkKey = GIFTCARD_NETWORK;
 
       const run = await runAction(getOrderAction(gateway), {
@@ -508,7 +535,8 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
     .action(async (cmdOpts: { status?: string; limit: string; offset: string }) => {
       const globals = getGlobals(program);
       const fmt = format(globals);
-      const { gateway } = buildGateway(globals);
+      const { gateway, authWallet } = buildGateway(globals);
+      if (!requireRealAuthWallet(authWallet, fmt)) return;
       const networkKey = GIFTCARD_NETWORK;
       const run = await runAction(listOrdersAction(gateway), {
         network: networkKey,

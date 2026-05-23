@@ -51,15 +51,49 @@ function mask(value: string | undefined): string | undefined {
   return `${value.slice(0, 4)}…${value.slice(-4)}`;
 }
 
+/**
+ * Strip path/query from a URL while preserving scheme://host[:port] for
+ * diagnostic value. Provider RPC endpoints (Alchemy, Infura, QuickNode,
+ * Tatum, etc.) embed API keys directly in the URL path — printing the
+ * raw URL in a doctor report leaks a live credential. Best-effort:
+ * malformed URLs fall back to a fixed-length mask.
+ */
+function maskUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const u = new URL(value);
+    const hasPathOrQuery = (u.pathname && u.pathname !== '/') || u.search;
+    return `${u.protocol}//${u.host}${hasPathOrQuery ? '/<redacted>' : ''}`;
+  } catch {
+    return mask(value);
+  }
+}
+
+/**
+ * Env-var name patterns that hold credentials in some part of their
+ * value. *_KEY / *_TOKEN / *_SECRET / *_PASSWORD are masked wholesale.
+ * *_URL / *_ENDPOINT are passed through `maskUrl` because provider
+ * endpoints commonly embed an API key in the path (Alchemy/Infura).
+ */
+function isSecretName(name: string): boolean {
+  const n = name.toLowerCase();
+  return n.includes('key') || n.includes('token') || n.includes('secret') || n.includes('password');
+}
+function isUrlName(name: string): boolean {
+  const n = name.toLowerCase();
+  return n.endsWith('_url') || n.endsWith('_endpoint') || n.includes('rpc_url');
+}
+
 function envCheck(name: string, required = false): DoctorEnvCheck {
   const raw = process.env[name];
   const set = raw != null && raw !== '';
-  return {
-    name,
-    set,
-    required,
-    value: set ? (name.toLowerCase().includes('key') || name.toLowerCase().includes('token') ? mask(raw) : raw) : undefined,
-  };
+  let value: string | undefined;
+  if (set) {
+    if (isSecretName(name)) value = mask(raw);
+    else if (isUrlName(name)) value = maskUrl(raw);
+    else value = raw;
+  }
+  return { name, set, required, value };
 }
 
 async function pingApi(url: string, timeoutMs = 5000): Promise<DoctorApiCheck> {
@@ -82,7 +116,7 @@ async function checkWallet(networkKey: 'goat-mainnet' | 'goat-testnet'): Promise
     return {
       configured: false,
       network: networkKey,
-      rpcUrl: cfg.rpcUrl,
+      rpcUrl: maskUrl(cfg.rpcUrl) ?? '',
       ok: false,
       error: 'GOAT_PRIVATE_KEY not set; cannot test wallet',
     };
@@ -98,7 +132,7 @@ async function checkWallet(networkKey: 'goat-mainnet' | 'goat-testnet'): Promise
       return {
         configured: true,
         network: networkKey,
-        rpcUrl: cfg.rpcUrl,
+        rpcUrl: maskUrl(cfg.rpcUrl) ?? '',
         address,
         chainId,
         ok: false,
@@ -108,7 +142,7 @@ async function checkWallet(networkKey: 'goat-mainnet' | 'goat-testnet'): Promise
     return {
       configured: true,
       network: networkKey,
-      rpcUrl: cfg.rpcUrl,
+      rpcUrl: maskUrl(cfg.rpcUrl) ?? '',
       address,
       chainId,
       ok: true,
@@ -117,7 +151,7 @@ async function checkWallet(networkKey: 'goat-mainnet' | 'goat-testnet'): Promise
     return {
       configured: true,
       network: networkKey,
-      rpcUrl: cfg.rpcUrl,
+      rpcUrl: maskUrl(cfg.rpcUrl) ?? '',
       ok: false,
       error: err instanceof Error ? err.message : String(err),
     };

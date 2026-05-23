@@ -44,6 +44,7 @@ import { x402GetOrderStatusAction } from '../../plugins/gns/actions/x402-get-ord
 import { GNS_PAYMENT_TOKENS, resolveGnsPaymentToken } from '../../plugins/gns/constants';
 import { x402PayOrderAction } from '../../plugins/gns/actions/x402-pay-order';
 import { x402SubmitSignatureAction } from '../../plugins/gns/actions/x402-submit-signature';
+import { approveErc20Action } from '../../plugins/wallet/actions/approve-erc20';
 import { EvmPayerWalletAdapter } from '../../plugins/x402/adapters/evm-payer-wallet';
 import { JsonRpcProvider, Wallet } from 'ethers';
 import { labelhash } from 'viem';
@@ -233,10 +234,13 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         }
 
         if (!globals.autoConfirm) {
-          const okay = await confirm(`Register ${name} for ${years} year(s)?`, {
-            autoConfirm: globals.autoConfirm,
-            quiet: globals.quiet,
-          });
+          const okay = await confirm(
+            `Register ${name} for ${years} year(s)? (also approves ${cmdOpts.token} spending to the controller for the quoted price)`,
+            {
+              autoConfirm: globals.autoConfirm,
+              quiet: globals.quiet,
+            },
+          );
           if (!okay) {
             status('warn', 'aborted by user');
             process.exitCode = ExitCodes.USER_INPUT;
@@ -353,18 +357,30 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           return;
         }
 
-        // Approve the registrar to pull the payment token (register reverts with
-        // INVALID_INPUT on insufficient allowance, and the action does not
-        // self-approve). Skip when paying via permit (not wired in the CLI yet).
-        try {
-          status('info', `approving ${paymentTokenSymbol} ${amountWei} to controller ${contracts.controller}`);
-          const appr = await wallet.approveErc20(paymentTokenAddress, contracts.controller, amountWei);
-          status('info', `approve tx: ${appr.txHash}`);
-        } catch (err) {
-          status('error', `ERC-20 approve failed: ${(err as Error).message}`);
-          process.exitCode = ExitCodes.ADAPTER;
+        // Approve the registrar to pull the payment token (register reverts
+        // with INVALID_INPUT on insufficient allowance, and the action does
+        // not self-approve). Skip when paying via permit (not wired in the
+        // CLI yet). Routed through `approveErc20Action` rather than calling
+        // `wallet.approveErc20` directly so PolicyEngine + ExecutionHooks
+        // observe the on-chain approval; the umbrella register confirm()
+        // above already discloses it, so `confirmed: true` is sound.
+        status('info', `approving ${paymentTokenSymbol} ${amountWei} to controller ${contracts.controller}`);
+        const apprRun = await runAction(approveErc20Action(wallet), {
+          network: networkKey,
+          input: {
+            tokenAddress: paymentTokenAddress,
+            spender: contracts.controller,
+            amount: amountWei,
+          },
+          executionOptions: { confirmed: true },
+          format: fmt,
+        });
+        if (!apprRun.result.ok || !apprRun.result.output) {
+          reportResult(apprRun.result, fmt);
+          process.exitCode = apprRun.exitCode;
           return;
         }
+        status('info', `approve tx: ${(apprRun.result.output as { txHash: string }).txHash}`);
 
         // Register.
         const reg = await runAction(registerAction(contracts, wallet), {
@@ -552,16 +568,25 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         // NOT self-approve, so the CLI must do it explicitly. We are
         // only here AFTER the preflight above confirmed the name is
         // owned by us — so this approve will only be paid on a renew
-        // that will actually succeed.
-        try {
-          status('info', `approving ${cmdOpts.token} ${amountWei} to controller ${contracts.controller}`);
-          const appr = await wallet.approveErc20(tokenAddress, contracts.controller, amountWei);
-          status('info', `approve tx: ${appr.txHash}`);
-        } catch (err) {
-          status('error', `ERC-20 approve failed: ${(err as Error).message}`);
-          process.exitCode = ExitCodes.ADAPTER;
+        // that will actually succeed. Routed through `approveErc20Action`
+        // so PolicyEngine + ExecutionHooks observe the approval.
+        status('info', `approving ${cmdOpts.token} ${amountWei} to controller ${contracts.controller}`);
+        const renewApprRun = await runAction(approveErc20Action(wallet), {
+          network: networkKey,
+          input: {
+            tokenAddress: tokenAddress as `0x${string}`,
+            spender: contracts.controller,
+            amount: amountWei,
+          },
+          executionOptions: { confirmed: true },
+          format: fmt,
+        });
+        if (!renewApprRun.result.ok || !renewApprRun.result.output) {
+          reportResult(renewApprRun.result, fmt);
+          process.exitCode = renewApprRun.exitCode;
           return;
         }
+        status('info', `approve tx: ${(renewApprRun.result.output as { txHash: string }).txHash}`);
 
         const renew = await runAction(renewAction(contracts, wallet), {
           network: networkKey,

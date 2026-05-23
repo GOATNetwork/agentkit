@@ -372,7 +372,13 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
    * token for `address`.
    *
    * `forceRefresh=true` is used after a 401: it clears any cached
-   * token / pending promise before starting a fresh auth roundtrip.
+   * token before checking the in-flight map. The pending promise (if
+   * any) is NOT cleared — its `runAuthFlow` was guaranteed to begin
+   * AFTER the cache was last populated, so its result is fresh enough
+   * to satisfy our forced refresh. Deleting the pending entry and
+   * starting a new flow in parallel would burn the just-issued nonce
+   * on the second `/auth/verify` (the backend's nonce store sees the
+   * fresher request first).
    */
   private async ensureToken(
     address: string,
@@ -381,7 +387,6 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
   ): Promise<string> {
     if (forceRefresh) {
       await this.authCache.clear(address);
-      this.pendingAuth.delete(address);
     } else {
       const cached = await this.authCache.get(address);
       if (cached) return cached.token;
@@ -402,6 +407,26 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
     return result.token;
   }
 
+  /**
+   * Poll the auth cache while another process holds the distributed lock,
+   * so concurrent multi-process callers converge on a single auth
+   * roundtrip instead of stampeding the backend. Bounded by the lock TTL
+   * (the holder must finish or have its lock reaped within that window).
+   */
+  private async waitForCachedToken(
+    address: string,
+    externalSignal?: AbortSignal,
+  ): Promise<CachedToken | null> {
+    const deadline = Date.now() + SINGLE_FLIGHT_LOCK_TTL_MS;
+    while (Date.now() < deadline) {
+      if (externalSignal?.aborted) return null;
+      const cached = await this.authCache.get(address);
+      if (cached) return cached;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  }
+
   private async runAuthFlow(address: string, externalSignal?: AbortSignal): Promise<CachedToken> {
     if (!this.authSigner) {
       // Defensive: caller is supposed to have checked.
@@ -411,19 +436,36 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
       );
     }
 
-    // Best-effort distributed lock. On failure we still proceed with
-    // the in-process single-flight (the local Map is the source of
-    // truth — Redis is purely a multi-process coordination hint).
+    // Distributed lock. Three outcomes from `redis.set(... NX)`:
+    //   • `'OK'`   — we own the lock; run the auth flow.
+    //   • `null`   — another process owns it; poll the cache for their
+    //                token (waitForCachedToken) instead of stampeding.
+    //   • throws   — Redis is unreachable; degrade to in-process
+    //                single-flight IMMEDIATELY (no cache poll). Polling
+    //                here would block for SINGLE_FLIGHT_LOCK_TTL_MS on
+    //                every auth attempt during a Redis outage.
     const lockKey = `auth:inflight:${address}`;
     const lockToken = `${address}:${Date.now()}:${Math.random()}`;
     let acquiredLock = false;
+    let redisReachable = false;
     if (this.redis) {
       try {
         const result = await this.redis.set(lockKey, lockToken, 'PX', SINGLE_FLIGHT_LOCK_TTL_MS, 'NX');
+        redisReachable = true;
         acquiredLock = result === 'OK';
       } catch {
-        // Swallow — distributed lock is a best-effort optimisation.
+        // Swallow — distributed lock is best-effort. redisReachable
+        // stays false so we skip the cache-poll (which would otherwise
+        // wait the full lock TTL for a winner that doesn't exist).
+        redisReachable = false;
         acquiredLock = false;
+      }
+      if (redisReachable && !acquiredLock) {
+        const winner = await this.waitForCachedToken(address, externalSignal);
+        if (winner) return winner;
+        // Winner did not publish a token (errored, timed out, or its TTL
+        // reaped before completion). Run our own auth flow as fallback;
+        // this is the degraded but functional path.
       }
     }
 
@@ -483,7 +525,18 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
     } finally {
       if (acquiredLock && this.redis) {
         try {
-          await this.redis.del(lockKey);
+          // Best-effort check-and-delete: if our TTL has already lapsed
+          // and another process re-acquired the same key, do NOT delete
+          // their lock. Without an atomic eval, GET+DEL has a tiny race
+          // window, but it is strictly better than unconditional DEL.
+          // When `get` is unavailable on the supplied client, skip the
+          // release and let the TTL reap it — never delete blindly.
+          if (typeof this.redis.get === 'function') {
+            const current = await this.redis.get(lockKey);
+            if (current === lockToken) {
+              await this.redis.del(lockKey);
+            }
+          }
         } catch {
           /* ignore — TTL will reap it */
         }

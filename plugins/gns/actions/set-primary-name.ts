@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { namehash } from 'viem';
+import { labelhash } from 'viem';
 import type { ActionDefinition } from '../../../core/schema/action';
 import { AgentkitRuntimeError } from '../../../core/errors/error';
 import { ErrorCodes } from '../../../core/errors/error-codes';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
 import { ZERO_ADDRESS, assertValidName, normalizeGoatName } from '../constants';
 import {
-  ENS_REGISTRY_ABI,
+  BASE_REGISTRAR_ABI,
   REVERSE_REGISTRAR_ABI,
   type GnsContractRegistry,
 } from '../adapters/contracts';
@@ -36,8 +36,13 @@ const outputSchema: z.ZodType<SetPrimaryNameOutput> = z.object({
  * into setting its primary name to a label it doesn't own, breaking reverse
  * lookups for everything that depends on that name.
  *
- * We therefore read `ensRegistry.owner(namehash(name))` and require it
- * equals the caller's address. On mismatch → `POLICY_BLOCKED`.
+ * We therefore read `baseRegistrar.ownerOf(labelhash(label))` — the NFT
+ * owner is the authoritative source of truth for 2LD ownership, matching
+ * the check used by `renew`. (An earlier version read
+ * `ensRegistry.owner(namehash(name))`, which can return the
+ * BaseRegistrar/NameWrapper contract instead of the EOA when `reclaim`
+ * has not been called, locking out legitimate owners.) On mismatch →
+ * `POLICY_BLOCKED`.
  */
 export function setPrimaryNameAction(
   contracts: GnsContractRegistry,
@@ -52,16 +57,16 @@ export function setPrimaryNameAction(
     zodInputSchema: inputSchema,
     zodOutputSchema: outputSchema,
     async execute(ctx, input) {
-      const { fullName } = normalizeGoatName(input.name);
+      const { fullName, label } = normalizeGoatName(input.name);
       assertValidName(fullName);
-      const node = namehash(fullName);
+      const tokenId = BigInt(labelhash(label));
       const caller = (await wallet.getAddress()).toLowerCase();
 
       const ownerRaw = await wallet.callContract(
-        contracts.ensRegistry,
-        ENS_REGISTRY_ABI as unknown as string[],
-        'owner',
-        [node],
+        contracts.baseRegistrar,
+        BASE_REGISTRAR_ABI as unknown as string[],
+        'ownerOf',
+        [tokenId],
       );
       const owner = String(ownerRaw ?? ZERO_ADDRESS).toLowerCase();
       if (owner === ZERO_ADDRESS || owner !== caller) {

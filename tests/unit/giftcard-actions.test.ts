@@ -13,6 +13,7 @@ import {
   listSupportedTokensAction,
   payOrderAction,
 } from '../../plugins/giftcard/index';
+import { flattenCardFields } from '../../plugins/giftcard/actions/order-utils';
 import type {
   Brand,
   BrandDetails,
@@ -343,6 +344,68 @@ describe('goat.giftcard.payOrder', () => {
       code: 'INVALID_INPUT',
     });
   });
+
+  it('per-orderId single-flight: concurrent calls collapse to one transfer', async () => {
+    // Two parallel calls for the same orderId must NOT both broadcast. The
+    // status gate alone is TOCTOU under concurrency; the in-flight Map is
+    // what actually protects the money path.
+    const order = buildOrder();
+    let getOrderCalls = 0;
+    const gateway: GatewaySlice = {
+      getOrder: vi.fn(async () => {
+        getOrderCalls += 1;
+        return order;
+      }),
+    };
+    const wallet = buildWallet(8453);
+    // Make transferErc20 slow so the two calls overlap deterministically.
+    wallet.transferErc20.mockImplementation(
+      () => new Promise((r) => setTimeout(() => r({ txHash: '0xdeadbeef' }), 30)),
+    );
+    const action = payOrderAction(gateway, wallet);
+
+    const [a, b] = await Promise.all([
+      action.execute(baseCtx, { orderId: order.order_id }),
+      action.execute(baseCtx, { orderId: order.order_id }),
+    ]);
+    expect(wallet.transferErc20).toHaveBeenCalledTimes(1);
+    expect(getOrderCalls).toBe(1);
+    expect(a.txHash).toBe('0xdeadbeef');
+    expect(b.txHash).toBe('0xdeadbeef');
+  });
+
+  it('per-orderId single-flight: different orderIds run independently', async () => {
+    const orderA = buildOrder({ order_id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' });
+    const orderB = buildOrder({ order_id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb' });
+    const gateway: GatewaySlice = {
+      getOrder: vi.fn(async (id: string) => (id === orderA.order_id ? orderA : orderB)),
+    };
+    const wallet = buildWallet(8453);
+    const action = payOrderAction(gateway, wallet);
+
+    await Promise.all([
+      action.execute(baseCtx, { orderId: orderA.order_id }),
+      action.execute(baseCtx, { orderId: orderB.order_id }),
+    ]);
+    expect(wallet.transferErc20).toHaveBeenCalledTimes(2);
+  });
+
+  it('per-orderId single-flight: lock releases after completion', async () => {
+    const order = buildOrder();
+    const gateway: GatewaySlice = { getOrder: vi.fn().mockResolvedValue(order) };
+    const wallet = buildWallet(8453);
+    const action = payOrderAction(gateway, wallet);
+    // First call completes…
+    await action.execute(baseCtx, { orderId: order.order_id });
+    // …then the order's status flips on the backend (simulate FULFILLED).
+    gateway.getOrder = vi.fn().mockResolvedValue({ ...order, status: 'FULFILLED' });
+    // …a second sequential call must hit the status gate, not be collapsed
+    // into the (already-done) prior call.
+    await expect(action.execute(baseCtx, { orderId: order.order_id })).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: expect.stringContaining('order_not_payable'),
+    });
+  });
 });
 
 /* ---------------------------------------------------------------- */
@@ -419,6 +482,45 @@ describe('goat.giftcard.listOrders redaction', () => {
     const action = listOrdersAction(gateway);
     const result = await action.execute(baseCtx, {});
     expect(result.orders[0].card_code).toBe('AMZN-1234');
+  });
+});
+
+/* ---------------------------------------------------------------- */
+/*  flattenCardFields fallback                                      */
+/* ---------------------------------------------------------------- */
+
+describe('flattenCardFields', () => {
+  it('promotes nested card.* to top level when present', () => {
+    const order = buildOrder({
+      card: { card_code: 'AMZN-123', card_pin: 'PIN-9', card_link: 'https://x', card_barcode: 'BC' },
+    } as Partial<OrderRecord>);
+    const out = flattenCardFields(order) as unknown as Record<string, unknown>;
+    expect(out.card_code).toBe('AMZN-123');
+    expect(out.card_pin).toBe('PIN-9');
+    expect(out.card_link).toBe('https://x');
+    expect(out.card_barcode).toBe('BC');
+    expect(out.card).toBeUndefined();
+  });
+
+  it('keeps top-level card_* when nested counterparts are null', () => {
+    // Regression: previously `card.card_code ?? undefined` clobbered a
+    // populated top-level field with `undefined`, silently erasing
+    // delivered secrets.
+    const order = {
+      ...buildOrder(),
+      card_code: 'TOP-LEVEL-CODE',
+      card_pin: 'TOP-PIN',
+      card: { card_code: null, card_pin: null, card_link: null, card_barcode: null },
+    } as unknown as OrderRecord;
+    const out = flattenCardFields(order) as unknown as Record<string, unknown>;
+    expect(out.card_code).toBe('TOP-LEVEL-CODE');
+    expect(out.card_pin).toBe('TOP-PIN');
+  });
+
+  it('drops the nested card object even when no card_* fields are set anywhere', () => {
+    const order = { ...buildOrder(), card: undefined } as OrderRecord;
+    const out = flattenCardFields(order) as unknown as Record<string, unknown>;
+    expect(out.card).toBeUndefined();
   });
 });
 

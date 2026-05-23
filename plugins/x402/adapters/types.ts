@@ -51,4 +51,12 @@ export interface PayerWalletAdapter {
   normalizeAuthorization(input: string): Promise<string>;
   signCalldataTypedData(request: CalldataSignRequest): Promise<string>;
   transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult>;
+  /**
+   * Optional: chainId of the signer that will broadcast `transferToken`.
+   * Cross-chain actions (e.g. `goat.gns.x402.payOrder`) MUST validate the
+   * payer's chain matches the order's `payChainId` — checking only the
+   * adjacent `WalletProvider.getChainId()` is insufficient when `wallet`
+   * and `payer` are constructed from different signers.
+   */
+  getChainId?(): Promise<number>;
 }
