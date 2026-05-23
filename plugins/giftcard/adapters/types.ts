@@ -24,6 +24,7 @@ export type GiftcardOrderStatus =
   | 'FULFILLMENT_POLLING'
   | 'FULFILLED'
   | 'FAILED'
+  | 'CANCELLED'
   | 'EXPIRED'
   | 'REFUNDING'
   | 'REFUNDED'

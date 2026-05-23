@@ -228,18 +228,24 @@ export function registerAction(
         };
       }
 
-      // No permit → require explicit allowance.
+      // No permit → require explicit allowance from the SIGNER (msg.sender),
+      // not from `registration.owner`. The on-chain controller pulls tokens
+      // via `transferFrom(msg.sender, …)`; when a user registers a name on
+      // behalf of someone else (owner ≠ signer), it's the signer that must
+      // hold the allowance. Reading owner's allowance here gave false
+      // `insufficient allowance` rejections in that scenario.
+      const signerAddress = (await wallet.getAddress()) as `0x${string}`;
       const allowanceRaw = await wallet.callContract(
         payment.paymentToken,
         ERC20_ABI as unknown as string[],
         'allowance',
-        [registration.owner, contracts.controller],
+        [signerAddress, contracts.controller],
       );
       const allowance = BigInt(String(allowanceRaw ?? '0'));
       if (allowance < BigInt(payment.maxPaymentAmount)) {
         throw new AgentkitRuntimeError(
           ErrorCodes.INVALID_INPUT,
-          `insufficient allowance; pass permit or pre-approve (have ${allowance}, need ${payment.maxPaymentAmount})`,
+          `insufficient allowance; pass permit or pre-approve (signer=${signerAddress}, have ${allowance}, need ${payment.maxPaymentAmount})`,
         );
       }
 

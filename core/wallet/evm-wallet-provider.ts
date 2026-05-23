@@ -67,12 +67,25 @@ export class EvmWalletProvider implements WalletProvider {
   private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
     if (!signal) return promise;
     this.throwIfAborted(signal);
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('Operation aborted')), { once: true });
-      }),
-    ]);
+    return new Promise<T>((resolve, reject) => {
+      // `{ once: true }` only auto-removes after the listener fires. When
+      // `promise` wins the race the listener stays attached until the signal
+      // is aborted; a long-lived signal reused across many wallet calls
+      // would then trip Node's MaxListenersExceededWarning. Detach
+      // explicitly on settle.
+      const onAbort = (): void => reject(new Error('Operation aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    });
   }
 
   async transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }> {

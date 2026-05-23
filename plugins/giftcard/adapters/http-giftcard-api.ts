@@ -422,7 +422,25 @@ export class HttpGiftcardGatewayAdapter implements GiftcardGateway {
       if (externalSignal?.aborted) return null;
       const cached = await this.authCache.get(address);
       if (cached) return cached;
-      await new Promise((r) => setTimeout(r, 100));
+      // Abort-aware sleep — without this, an aborted call would still
+      // block for the full 100ms between checks and, worst case, up to
+      // the whole SINGLE_FLIGHT_LOCK_TTL_MS window.
+      const aborted = await new Promise<boolean>((resolve) => {
+        if (externalSignal?.aborted) {
+          resolve(true);
+          return;
+        }
+        const timer = setTimeout(() => {
+          externalSignal?.removeEventListener?.('abort', onAbort);
+          resolve(false);
+        }, 100);
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        externalSignal?.addEventListener?.('abort', onAbort, { once: true });
+      });
+      if (aborted) return null;
     }
     return null;
   }

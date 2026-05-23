@@ -487,7 +487,16 @@ export async function runGiftcardCli(argv: readonly string[]): Promise<ExitCode>
             process.exitCode = ExitCodes.SUCCESS;
             return;
           }
-          if (order.status === 'CANCELLED' || order.status === 'REFUNDED' || order.status === 'FAILED') {
+          // Terminal failure statuses (per GiftcardOrderStatus in
+          // plugins/giftcard/adapters/types.ts). Polling further here only
+          // burns the timeout budget — bail fast and surface the status.
+          if (
+            order.status === 'CANCELLED' ||
+            order.status === 'REFUNDED' ||
+            order.status === 'FAILED' ||
+            order.status === 'EXPIRED' ||
+            order.status === 'REFUND_FAILED'
+          ) {
             reportResult(getRes, fmt, { revealAll: globals.revealSecrets });
             process.exitCode = ExitCodes.CHAIN_OR_STATE;
             return;

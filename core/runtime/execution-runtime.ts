@@ -360,16 +360,23 @@ export class ExecutionRuntime {
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, actionName: string, controller: AbortController): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        const timer = setTimeout(() => {
-          controller.abort();
-          reject(new AgentkitRuntimeError(ErrorCodes.TIMEOUT, `Action ${actionName} timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-        // Don't prevent process exit
-        if (typeof timer === 'object' && 'unref' in timer) timer.unref();
-      }),
-    ]);
+    // Capture the timer so we can clear it when `promise` wins the race.
+    // Without clearTimeout the timer keeps firing after success, calling
+    // `controller.abort()` on an already-completed attempt and producing
+    // a stale `reject()` on the abandoned inner promise. `.unref()` only
+    // saves us from blocking Node's event-loop exit; non-Node runtimes
+    // (Bun/Deno/test runners) and long-lived workers still leak the timer.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new AgentkitRuntimeError(ErrorCodes.TIMEOUT, `Action ${actionName} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      if (typeof timer === 'object' && 'unref' in (timer as object)) (timer as { unref(): void }).unref();
+    });
+    const settled = promise.finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    });
+    return Promise.race([settled, timeoutPromise]);
   }
 }
