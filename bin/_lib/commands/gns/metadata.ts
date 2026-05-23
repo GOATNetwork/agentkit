@@ -22,7 +22,7 @@ export const GNS_CLI_METADATA: CliMetadata = {
     },
     {
       name: 'my-names',
-      summary: "List .goat names owned by a wallet",
+      summary: 'List .goat names owned by a wallet',
       description: 'List names + token IDs + expiry for an EVM address.',
       args: [{ name: '<address>', description: 'EVM owner address' }],
       actions: ['goat.gns.getMyNames'],
@@ -35,7 +35,11 @@ export const GNS_CLI_METADATA: CliMetadata = {
       args: [{ name: '<name>', description: 'The .goat name' }],
       flags: [
         { flag: '--years <n>', description: 'Registration term (1..10)', defaultValue: 1 },
-        { flag: '--token <symbol>', description: 'Payment token symbol (informational; passed through)', defaultValue: 'USDC' },
+        {
+          flag: '--token <symbol>',
+          description: 'Payment token symbol (informational; passed through)',
+          defaultValue: 'USDC',
+        },
         { flag: '--token-contract <address>', description: 'Override payment token contract' },
       ],
       actions: ['goat.gns.estimatePrice'],
@@ -98,12 +102,10 @@ export const GNS_CLI_METADATA: CliMetadata = {
     },
     {
       name: 'set-primary',
-      summary: 'Set the caller\'s reverse / primary .goat name',
+      summary: "Set the caller's reverse / primary .goat name",
       description: 'Reads forward-record ownership preflight, then calls reverseRegistrar.setName.',
       args: [{ name: '<name>', description: 'The .goat name to set as primary' }],
-      flags: [
-        { flag: '--address <address>', description: 'Address to set primary for (defaults to wallet address)' },
-      ],
+      flags: [{ flag: '--address <address>', description: 'Address to set primary for (defaults to wallet address)' }],
       actions: ['goat.gns.setPrimaryName'],
       risk: 'medium',
     },
@@ -111,16 +113,25 @@ export const GNS_CLI_METADATA: CliMetadata = {
       name: 'x402-register',
       summary: 'Cross-chain register a .goat name paid from another chain via x402',
       description:
-        'Commit on GOAT, createOrder via gns-api x402, submitSignature with the GOAT-bound payer, payOrder on the source chain, then poll until PAYMENT_CONFIRMED.',
+        'x402.config preflight (validate chain/token/contract trio against merchant), estimatePrice on GOAT-side stablecoin, commit on GOAT (binds the same paymentToken+amount the backend re-derives), waitForCommitment (poll until block.timestamp ≥ revealAt), createOrder via gns-api x402 with commitMaxAmountWei pinned, submitSignature with the GOAT-bound payer, payOrder on the source chain (with payment-routing inputs from createOrder + on-record proof binding), then poll until INVOICED (true success — DELEGATE callback executed on GOAT) or terminal failure (FAILED / EXPIRED / CANCELLED).',
       args: [{ name: '<name>', description: 'The .goat name to register' }],
       flags: [
         { flag: '--years <n>', description: 'Term in years', defaultValue: 1 },
         { flag: '--pay-chain <chainId>', description: 'Source chain id to pay from', defaultValue: 8453 },
         { flag: '--pay-token <symbol>', description: 'Source token symbol', defaultValue: 'USDC' },
         { flag: '--pay-token-contract <address>', description: 'Source token contract address' },
+        {
+          flag: '--wait-timeout <sec>',
+          description: 'Max seconds to poll for the commit reveal window',
+          defaultValue: 180,
+        },
+        { flag: '--poll-interval <sec>', description: 'Seconds between commit-readiness polls', defaultValue: 10 },
       ],
       actions: [
+        'goat.gns.x402.config (preflight)',
+        'goat.gns.estimatePrice',
         'goat.gns.commit',
+        'goat.gns.waitForCommitment',
         'goat.gns.x402.createOrder',
         'goat.gns.x402.submitSignature',
         'goat.gns.x402.payOrder',

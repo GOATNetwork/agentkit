@@ -1,5 +1,10 @@
 import type { WalletProvider } from './wallet-provider';
-import type { PayerWalletAdapter, CalldataSignRequest, TransferTokenInput, TransferTokenResult } from '../../plugins/x402/adapters/types';
+import type {
+  PayerWalletAdapter,
+  CalldataSignRequest,
+  TransferTokenInput,
+  TransferTokenResult,
+} from '../../plugins/x402/adapters/types';
 import type { WalletReadAdapter, BalanceQueryInput, BalanceQueryOutput } from '../../plugins/wallet/adapters/types';
 
 export class WalletProviderPayerAdapter implements PayerWalletAdapter {
@@ -16,6 +21,32 @@ export class WalletProviderPayerAdapter implements PayerWalletAdapter {
   async transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult> {
     const result = await this.wallet.transferErc20(input.tokenAddress, input.to, input.amount, { signal });
     return { txHash: result.txHash };
+  }
+
+  /**
+   * Delegate to the wrapped `WalletProvider.getAddress()` so the
+   * x402 3-way payer binding check (Issue #3 R4 Codex P5 / R5 follow-up)
+   * fires for this adapter too. Without this delegation, callers using
+   * `WalletProviderPayerAdapter` as the `payer` argument silently bypass
+   * the payer-side binding when `wallet ≠ payer` wrap different keys.
+   */
+  async getAddress(): Promise<string> {
+    return this.wallet.getAddress();
+  }
+
+  /**
+   * Delegate `getChainId` for the same reason — the cross-chain x402
+   * payOrder check requires `payer.getChainId()` to match the order's
+   * source chain when implemented, and skipping it here was the same
+   * class of bypass we close for `getAddress`.
+   */
+  async getChainId(): Promise<number> {
+    if (typeof this.wallet.getChainId !== 'function') {
+      throw new Error(
+        'WalletProviderPayerAdapter: wrapped WalletProvider does not implement getChainId(); cannot satisfy the cross-chain x402 payer chain-binding check',
+      );
+    }
+    return this.wallet.getChainId();
   }
 }
 

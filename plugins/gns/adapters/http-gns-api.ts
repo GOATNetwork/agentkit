@@ -184,9 +184,28 @@ export class HttpGnsApiAdapter implements GnsApiAdapter {
       signal,
       'gns x402 getOrder failed',
     );
+    // FAIL CLOSED on missing status. Previously this defaulted to
+    // 'CHECKOUT_VERIFIED' which, after the Issue #3 gate flip in
+    // x402-pay-order.ts (now `status === 'CHECKOUT_VERIFIED'`), would
+    // silently let a malformed / status-less response pass the gate and
+    // re-broadcast the source-chain transfer. Surface as ADAPTER_REQUEST_FAILED
+    // so the caller sees an explicit upstream error instead of a phantom
+    // payable order.
+    if (typeof data.status !== 'string' || data.status.length === 0) {
+      // Issue #3 Round 1 (Claude): throw a typed runtime error so the
+      // runtime's normalizeError keeps the ADAPTER_REQUEST_FAILED code.
+      // A plain Error would map to INTERNAL_ERROR — caller branches on the
+      // wrong code, and the retry policy reads this as a transient SDK
+      // glitch when it's actually a malformed upstream response.
+      throw new AgentkitRuntimeError(
+        ErrorCodes.ADAPTER_REQUEST_FAILED,
+        `gns x402 getOrder returned no status field (orderId=${orderId}); refusing to default — upstream response is malformed`,
+        { orderId, raw: data },
+      );
+    }
     return {
       orderId,
-      status: String(data.status ?? 'CHECKOUT_VERIFIED'),
+      status: data.status,
       txHash: typeof data.txHash === 'string' ? data.txHash : undefined,
       confirmedAt: typeof data.confirmedAt === 'number' ? data.confirmedAt : undefined,
       raw: data,
