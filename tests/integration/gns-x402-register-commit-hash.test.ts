@@ -357,4 +357,43 @@ describe('agentkit-gns x402-register: CLI plan ordering', () => {
     expect(commitIdx).toBeLessThan(waitIdx);
     expect(waitIdx).toBeLessThan(createOrderIdx);
   });
+
+  it('rejects invalid wait polling flags before env / wallet setup', async () => {
+    // P2 regression: invalid Number(...) results used to become NaN after
+    // the GOAT commit, creating an unbounded rapid-poll loop. Validate the
+    // flags before any env checks or chain writes.
+    for (const [flag, value] of [
+      ['--wait-timeout', 'abc'],
+      ['--poll-interval', '0'],
+    ] as const) {
+      const result = await exec(
+        'node',
+        [
+          BIN,
+          '--json',
+          '--auto-confirm',
+          'x402-register',
+          'newagent',
+          '--pay-chain',
+          '56',
+          '--pay-token',
+          'USDT',
+          '--pay-token-contract',
+          '0x55d398326f99059fF775485246999027B3197955',
+          flag,
+          value,
+        ],
+        { cwd: REPO_ROOT, timeout: 25_000, env: process.env },
+      )
+        .then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }))
+        .catch((err) => {
+          const e = err as { code?: number; stdout?: string; stderr?: string };
+          return { code: e.code ?? -1, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
+        });
+
+      expect(result.code, `${flag}=${value} should fail as user input`).toBe(1);
+      expect(result.stderr).toMatch(new RegExp(flag.replace('--', '--')));
+      expect(result.stderr).not.toMatch(/GOAT_PRIVATE_KEY|PAYMENT_CHAIN_RPC_URL/);
+    }
+  });
 });

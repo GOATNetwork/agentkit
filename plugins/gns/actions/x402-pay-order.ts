@@ -90,10 +90,41 @@ const outputSchema: z.ZodType<X402PayOrderOutput> = z.object({
  * Per-orderId single-flight against double-pay under concurrency. The status
  * gate inside is TOCTOU — without this Map two concurrent calls for the same
  * orderId could both observe a payable state and both broadcast the transfer
- * (a money-path bug). Sequential retries after the first completes hit the
- * status gate, which by then reflects the post-pay state.
+ * (a money-path bug).
  */
 const inflight = new Map<string, Promise<X402PayOrderOutput>>();
+
+/**
+ * Successful transfer cache against sequential retry double-pay. After
+ * `transferToken` returns a tx hash, the upstream watcher can still need a
+ * few blocks to move the order out of CHECKOUT_VERIFIED. During that window a
+ * same-process retry must return the prior tx instead of broadcasting again.
+ */
+const PAID_ORDER_CACHE_TTL_MS = 10 * 60_000;
+const paidOrders = new Map<
+  string,
+  {
+    output: X402PayOrderOutput;
+    route: string;
+    expiresAtMs: number;
+  }
+>();
+
+function paymentRoute(input: X402PayOrderInput, walletAddress: string): string {
+  return [
+    input.payChainId,
+    input.tokenContract.toLowerCase(),
+    input.payToAddress.toLowerCase(),
+    input.amountWei,
+    walletAddress.toLowerCase(),
+  ].join(':');
+}
+
+function prunePaidOrders(nowMs: number): void {
+  for (const [orderId, cached] of paidOrders) {
+    if (cached.expiresAtMs <= nowMs) paidOrders.delete(orderId);
+  }
+}
 
 /**
  * SECURITY MODEL — what this action defends against vs what it cannot
@@ -110,7 +141,8 @@ const inflight = new Map<string, Promise<X402PayOrderOutput>>();
  *      authoritative x402Config supported-token list for the source chain.
  *      Missing chain in config → fail-closed `INVALID_INPUT`.
  *   4. Double-pay TOCTOU — module-scope inflight Map dedupes concurrent
- *      calls for the same orderId.
+ *      calls for the same orderId; successful tx cache dedupes same-process
+ *      sequential retries while the backend watcher is still catching up.
  *   5. Expiry window — refuse if `now ≥ expiresAt - EXPIRY_SAFETY_MARGIN`.
  *
  * **What this action cannot prevent (architectural — Issue #3 R4 Codex P1)**:
@@ -191,6 +223,7 @@ export function x402PayOrderAction(
     async execute(ctx, input) {
       const existing = inflight.get(input.orderId);
       if (existing) return existing;
+      prunePaidOrders(Date.now());
       const promise = (async (): Promise<X402PayOrderOutput> => {
         // Chain bindings BEFORE the status round-trip so a misconfigured
         // wallet can't waste an extra network call and so the chain-mismatch
@@ -331,6 +364,17 @@ export function x402PayOrderAction(
             );
           }
         }
+        const route = paymentRoute(input, walletAddr);
+        const cached = paidOrders.get(input.orderId);
+        if (cached) {
+          if (cached.route !== route) {
+            throw new AgentkitRuntimeError(
+              ErrorCodes.INVALID_INPUT,
+              `order_already_paid: cached tx ${cached.output.txHash} for order ${input.orderId} used different payment routing; refuse to broadcast again`,
+            );
+          }
+          return cached.output;
+        }
 
         // x402Config tokenContract guard. The status proof's `tokenContract`
         // is the GOAT-side adaptor token (a different address than the
@@ -459,12 +503,18 @@ export function x402PayOrderAction(
           ctx.signal,
         );
 
-        return {
+        const output = {
           orderId: input.orderId,
           txHash,
           payChainId: input.payChainId,
           amountWei: input.amountWei,
         };
+        paidOrders.set(input.orderId, {
+          output,
+          route,
+          expiresAtMs: Math.min(input.expiresAt * 1000, Date.now() + PAID_ORDER_CACHE_TTL_MS),
+        });
+        return output;
       })().finally(() => {
         inflight.delete(input.orderId);
       });

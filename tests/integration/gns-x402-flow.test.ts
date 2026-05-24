@@ -186,6 +186,8 @@ function buildRuntime(api: GnsApiAdapter, payer: PayerWalletAdapter, wallet: Wal
 describe('gns x402 cross-chain flow (fixture-backed)', () => {
   it('createOrder → submitSignature → payOrder → getOrderStatus', async () => {
     const api = new StubApi();
+    const happyOrderId = `${fixture.orderId}:happy`;
+    api.createX402Order = async () => ({ ...fixture, orderId: happyOrderId });
     const payer = new StubPayer();
     const wallet = makeSourceWallet(fixture.payChainId);
     const { provider, runtime, context } = buildRuntime(api, payer, wallet);
@@ -206,7 +208,7 @@ describe('gns x402 cross-chain flow (fixture-backed)', () => {
       { confirmed: true },
     );
     expect(created.ok).toBe(true);
-    expect(created.output!.orderId).toBe(fixture.orderId);
+    expect(created.output!.orderId).toBe(happyOrderId);
     expect(created.output!.calldataSignRequest.primaryType).toBe('Permit2CallbackData');
 
     const signed = await runtime.run(
@@ -706,6 +708,72 @@ describe('gns x402 cross-chain flow (fixture-backed)', () => {
     expect(a.ok).toBe(true);
     expect(b.ok).toBe(true);
     expect(transferCount, 'inflight Map must dedupe — only one source-chain transfer').toBe(1);
+  });
+
+  it('payOrder returns the first tx for a sequential retry while the backend status is still CHECKOUT_VERIFIED', async () => {
+    // P1 regression: inflight only protects concurrent calls. After the
+    // first transferToken resolves, the backend watcher may still report
+    // CHECKOUT_VERIFIED for a few blocks; a same-process sequential retry
+    // must not broadcast another source-chain transfer in that window.
+    const api = new StubApi();
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const input = { ...payOrderInput, orderId: `${fixture.orderId}:sequential-retry` };
+    let transferCount = 0;
+    payer.transferToken = async (transferInput: { tokenAddress: string; to: string; amount: string }) => {
+      transferCount += 1;
+      payer.transferred = transferInput;
+      // Intentionally do NOT flip api.orderStatus. This simulates the real
+      // watcher lag where the transfer was broadcast but status is still
+      // CHECKOUT_VERIFIED.
+      return { txHash: `0xseq_${transferCount}` };
+    };
+
+    const first = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, input, { confirmed: true });
+    const second = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, input, { confirmed: true });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(first.output!.txHash).toBe('0xseq_1');
+    expect(second.output!.txHash).toBe('0xseq_1');
+    expect(api.orderStatus).toBe('CHECKOUT_VERIFIED');
+    expect(transferCount, 'sequential retry must reuse cached txHash').toBe(1);
+  });
+
+  it('payOrder refuses to reuse the cached tx when a sequential retry mutates payment routing', async () => {
+    // P1 money-path guard: the paidOrders cache keys on
+    // (payChainId, tokenContract, payToAddress, amountWei, walletAddr).
+    // If a caller reuses the same orderId but flips any of these — e.g.
+    // doubles the amountWei — returning the cached tx would silently
+    // mask an inconsistent retry. Refuse with INVALID_INPUT instead,
+    // and prove no second transferToken happens.
+    const api = new StubApi();
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const orderId = `${fixture.orderId}:route-mismatch`;
+    const baseInput = { ...payOrderInput, orderId };
+    let transferCount = 0;
+    payer.transferToken = async (transferInput: { tokenAddress: string; to: string; amount: string }) => {
+      transferCount += 1;
+      payer.transferred = transferInput;
+      return { txHash: `0xroute_${transferCount}` };
+    };
+
+    const first = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, baseInput, { confirmed: true });
+    expect(first.ok).toBe(true);
+    expect(first.output!.txHash).toBe('0xroute_1');
+
+    // Second call: same orderId, different amountWei. Cache key mismatch
+    // must surface as INVALID_INPUT and must NOT broadcast.
+    const mutated = { ...baseInput, amountWei: (BigInt(baseInput.amountWei) * 2n).toString() };
+    const second = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, mutated, { confirmed: true });
+    expect(second.ok).toBe(false);
+    expect(second.errorCode).toBe('INVALID_INPUT');
+    expect(second.error).toMatch(/order_already_paid/);
+    expect(second.error).toMatch(/different payment routing/);
+    expect(transferCount, 'route-mismatch retry must not broadcast another transfer').toBe(1);
   });
 
   it('submitSignature surfaces ADAPTER_REQUEST_FAILED when gateway reports failed', async () => {

@@ -110,5 +110,6 @@ describe('WalletProviderPayerAdapter — Issue #3 R5 delegation', () => {
     const wallet = new WalletWithoutChainId();
     const adapter = new WalletProviderPayerAdapter(wallet);
     await expect(adapter.getChainId()).rejects.toThrow(/wrapped WalletProvider does not implement getChainId/);
+    await expect(adapter.getChainId()).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
 });

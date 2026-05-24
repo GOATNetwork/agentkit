@@ -206,8 +206,20 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         const networkKey = GNS_NETWORK;
         const contracts = getGnsContracts(networkKey);
         const api = getApi(globals);
-        const { authWallet: wallet } = createWalletPair({ network: networkKey, allowMock: globals.dryRun === true });
         const years = Number(cmdOpts.years);
+        const waitTimeoutSec = Number(cmdOpts.waitTimeout);
+        if (!Number.isFinite(waitTimeoutSec) || waitTimeoutSec <= 0) {
+          status('error', `--wait-timeout must be a positive number of seconds, got: ${cmdOpts.waitTimeout}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const pollIntervalSec = Number(cmdOpts.pollInterval);
+        if (!Number.isFinite(pollIntervalSec) || pollIntervalSec <= 0) {
+          status('error', `--poll-interval must be a positive number of seconds, got: ${cmdOpts.pollInterval}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const { authWallet: wallet } = createWalletPair({ network: networkKey, allowMock: globals.dryRun === true });
         const owner = (cmdOpts.owner ?? (await wallet.getAddress())) as `0x${string}`;
 
         if (globals.dryRun) {
@@ -313,8 +325,8 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
 
         // Wait — poll the on-chain reveal window. minCommitmentAge is 60s, so a
         // single immediate check always fails; poll until isReady or timeout.
-        const waitTimeoutMs = Math.max(0, Number(cmdOpts.waitTimeout) * 1000);
-        const pollIntervalMs = Math.max(1000, Number(cmdOpts.pollInterval) * 1000);
+        const waitTimeoutMs = waitTimeoutSec * 1000;
+        const pollIntervalMs = Math.max(1000, pollIntervalSec * 1000);
         const deadline = Date.now() + waitTimeoutMs;
         let ready = false;
         let lastWait: Awaited<ReturnType<typeof runAction>> | undefined;
@@ -699,6 +711,18 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           process.exitCode = ExitCodes.USER_INPUT;
           return;
         }
+        const waitTimeoutSec = Number(cmdOpts.waitTimeout);
+        if (!Number.isFinite(waitTimeoutSec) || waitTimeoutSec <= 0) {
+          status('error', `--wait-timeout must be a positive number of seconds, got: ${cmdOpts.waitTimeout}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const pollIntervalSec = Number(cmdOpts.pollInterval);
+        if (!Number.isFinite(pollIntervalSec) || pollIntervalSec <= 0) {
+          status('error', `--poll-interval must be a positive number of seconds, got: ${cmdOpts.pollInterval}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
 
         if (globals.dryRun) {
           emit(
@@ -960,8 +984,8 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         // `latestBlock.timestamp < revealAt`. Without this loop the order
         // creation almost always fails right after a fresh commit, since
         // minCommitmentAge is 60s.
-        const waitTimeoutMs = Math.max(0, Number(cmdOpts.waitTimeout) * 1000);
-        const pollIntervalMs = Math.max(1000, Number(cmdOpts.pollInterval) * 1000);
+        const waitTimeoutMs = waitTimeoutSec * 1000;
+        const pollIntervalMs = Math.max(1000, pollIntervalSec * 1000);
         const waitDeadline = Date.now() + waitTimeoutMs;
         let waitReady = false;
         let lastWait: Awaited<ReturnType<typeof runtime.run>> | undefined;

@@ -6,6 +6,8 @@ import type {
   TransferTokenResult,
 } from '../../plugins/x402/adapters/types';
 import type { WalletReadAdapter, BalanceQueryInput, BalanceQueryOutput } from '../../plugins/wallet/adapters/types';
+import { AgentkitRuntimeError } from '../errors/error';
+import { ErrorCodes } from '../errors/error-codes';
 
 export class WalletProviderPayerAdapter implements PayerWalletAdapter {
   constructor(private readonly wallet: WalletProvider) {}
@@ -42,7 +44,8 @@ export class WalletProviderPayerAdapter implements PayerWalletAdapter {
    */
   async getChainId(): Promise<number> {
     if (typeof this.wallet.getChainId !== 'function') {
-      throw new Error(
+      throw new AgentkitRuntimeError(
+        ErrorCodes.INVALID_INPUT,
         'WalletProviderPayerAdapter: wrapped WalletProvider does not implement getChainId(); cannot satisfy the cross-chain x402 payer chain-binding check',
       );
     }
