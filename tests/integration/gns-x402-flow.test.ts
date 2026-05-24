@@ -490,6 +490,132 @@ describe('gns x402 cross-chain flow (fixture-backed)', () => {
     expect(payer.transferred).toBeNull();
   });
 
+  it('payOrder fails closed when OrderProof.chainId is missing (F2 — no silent skip)', async () => {
+    // F2: previously the proof-binding skipped silently when the field was
+    // absent or wrong type, which is fail-open — a malformed upstream
+    // response would let the transfer through unbound. Now strict.
+    const api = new StubApi();
+    api.getX402Order = async (orderId: string) => ({
+      orderId,
+      status: 'CHECKOUT_VERIFIED',
+      raw: {
+        // chainId / payChainId intentionally omitted to simulate malformed upstream
+        amountWei: fixture.amountWei,
+        fromAddress: fixture.fromAddress,
+      },
+    });
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, payOrderInput, {
+      confirmed: true,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('ADAPTER_REQUEST_FAILED');
+    expect(res.error).toMatch(/order_proof_malformed.*payChainId\/chainId/);
+    expect(payer.transferred).toBeNull();
+  });
+
+  it('payOrder fails closed when OrderProof.chainId arrives as a numeric STRING (F2 Round 1 Codex P1 — no silent coercion)', async () => {
+    // Round 1 Codex P1: the F2 fix used Number(proofChainIdRaw) which
+    // silently coerces a string `"8453"` into a number, bypassing the
+    // wrong-type ADAPTER_REQUEST_FAILED contract. Backend's OrderProof
+    // type says `chainId: number`; a string here is a real malformed
+    // response and must surface as such.
+    const api = new StubApi();
+    api.getX402Order = async (orderId: string) => ({
+      orderId,
+      status: 'CHECKOUT_VERIFIED',
+      raw: {
+        chainId: String(fixture.payChainId), // STRING instead of number
+        amountWei: fixture.amountWei,
+        fromAddress: fixture.fromAddress,
+      },
+    });
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, payOrderInput, {
+      confirmed: true,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('ADAPTER_REQUEST_FAILED');
+    expect(res.error).toMatch(/order_proof_malformed.*payChainId.*not a positive integer/);
+    expect(payer.transferred).toBeNull();
+  });
+
+  it('payOrder error message handles BigInt chainId safely (R2 Codex P2 — no JSON.stringify TypeError on BigInt)', async () => {
+    // R2 Codex P2: BigInt values in raw fields would crash the error
+    // constructor via JSON.stringify, shadowing the typed
+    // ADAPTER_REQUEST_FAILED with a plain TypeError. Now uses String(...).
+    const api = new StubApi();
+    api.getX402Order = async (orderId: string) => ({
+      orderId,
+      status: 'CHECKOUT_VERIFIED',
+      raw: {
+        chainId: 8453n, // BigInt — must surface as typed error, not TypeError
+        amountWei: fixture.amountWei,
+        fromAddress: fixture.fromAddress,
+      },
+    });
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, payOrderInput, {
+      confirmed: true,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('ADAPTER_REQUEST_FAILED');
+    expect(res.error).toMatch(/order_proof_malformed.*payChainId.*typeof=bigint/);
+    expect(payer.transferred).toBeNull();
+  });
+
+  it('payOrder fails closed when OrderProof.amountWei is wrong type (F2 — no silent skip)', async () => {
+    const api = new StubApi();
+    api.getX402Order = async (orderId: string) => ({
+      orderId,
+      status: 'CHECKOUT_VERIFIED',
+      raw: {
+        chainId: fixture.payChainId,
+        amountWei: 3000000, // number instead of string — backend invariant violated
+        fromAddress: fixture.fromAddress,
+      },
+    });
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, payOrderInput, {
+      confirmed: true,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('ADAPTER_REQUEST_FAILED');
+    expect(res.error).toMatch(/order_proof_malformed.*amountWei/);
+    expect(payer.transferred).toBeNull();
+  });
+
+  it('payOrder fails closed when OrderProof.fromAddress is missing (F2 — no silent skip)', async () => {
+    const api = new StubApi();
+    api.getX402Order = async (orderId: string) => ({
+      orderId,
+      status: 'CHECKOUT_VERIFIED',
+      raw: {
+        chainId: fixture.payChainId,
+        amountWei: fixture.amountWei,
+        // fromAddress omitted
+      },
+    });
+    const payer = new StubPayer();
+    const wallet = makeSourceWallet(fixture.payChainId);
+    const { provider, runtime, context } = buildRuntime(api, payer, wallet);
+    const res = await runtime.run(provider.get('goat.gns.x402.payOrder'), context, payOrderInput, {
+      confirmed: true,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('ADAPTER_REQUEST_FAILED');
+    expect(res.error).toMatch(/order_proof_malformed.*fromAddress/);
+    expect(payer.transferred).toBeNull();
+  });
+
   it('payOrder rejects when payer signer address diverges from wallet address (R4 Codex P5 — 3-way payer binding)', async () => {
     // Issue #3 R4 Codex P5: the transfer goes through `payer.transferToken`,
     // not `wallet.transferToken`. If wallet and payer wrap different

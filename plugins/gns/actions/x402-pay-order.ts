@@ -386,34 +386,72 @@ export function x402PayOrderAction(
             `x402Config preflight failed in payOrder: ${(err as Error).message ?? String(err)}`,
           );
         }
+        // FAIL-CLOSED proof-binding (Issue #3 F2): the backend's `OrderProof`
+        // shape (goat-ens/backend/lib/goatx402-sdk-server/src/types.ts:111-123)
+        // guarantees `chainId`, `amountWei`, and `fromAddress` are always
+        // present. An earlier version silently skipped each check when the
+        // field was absent or the wrong type, which is fail-open — a
+        // malformed upstream response would let the transfer proceed
+        // unbound. Now each field is strictly required: malformed/missing →
+        // ADAPTER_REQUEST_FAILED (caller knows defense is unverifiable),
+        // mismatch → INVALID_INPUT (caller knows the inputs disagree).
         const proofChainIdRaw = raw.payChainId ?? raw.chainId;
-        if (proofChainIdRaw != null) {
-          const proofChainId = Number(proofChainIdRaw);
-          if (Number.isFinite(proofChainId) && proofChainId !== input.payChainId) {
-            throw new AgentkitRuntimeError(
-              ErrorCodes.INVALID_INPUT,
-              `order_proof_mismatch: input.payChainId=${input.payChainId} but on-record order.chainId=${proofChainId} — caller passed routing for a different chain`,
-            );
-          }
+        if (proofChainIdRaw === undefined || proofChainIdRaw === null) {
+          throw new AgentkitRuntimeError(
+            ErrorCodes.ADAPTER_REQUEST_FAILED,
+            `order_proof_malformed: status response missing payChainId/chainId (orderId=${input.orderId}) — cannot bind input.payChainId to a trusted source`,
+            { raw },
+          );
         }
-        if (typeof raw.amountWei === 'string' && raw.amountWei !== input.amountWei) {
+        // F2 + Round 1 Codex P1: STRICT type — backend `OrderProof.chainId`
+        // is typed as `number` (goat-ens backend types.ts:111-123). Accepting
+        // string-coerced numerics via `Number(...)` defeats the
+        // wrong-type → ADAPTER_REQUEST_FAILED contract that F2 was meant to
+        // enforce. If the backend ever emits a string here, that's a real
+        // malformed response and the caller should be told.
+        if (typeof proofChainIdRaw !== 'number' || !Number.isInteger(proofChainIdRaw) || proofChainIdRaw <= 0) {
+          // Use String(...) not JSON.stringify(...) — JSON.stringify throws
+          // TypeError on BigInt, which would shadow the typed
+          // ADAPTER_REQUEST_FAILED error with a plain TypeError (R2 Codex P2).
+          throw new AgentkitRuntimeError(
+            ErrorCodes.ADAPTER_REQUEST_FAILED,
+            `order_proof_malformed: status response payChainId/chainId is not a positive integer (orderId=${input.orderId}, value=${String(proofChainIdRaw)}, typeof=${typeof proofChainIdRaw})`,
+            { raw },
+          );
+        }
+        if (proofChainIdRaw !== input.payChainId) {
+          throw new AgentkitRuntimeError(
+            ErrorCodes.INVALID_INPUT,
+            `order_proof_mismatch: input.payChainId=${input.payChainId} but on-record order.chainId=${proofChainIdRaw} — caller passed routing for a different chain`,
+          );
+        }
+        if (typeof raw.amountWei !== 'string' || !/^\d+$/.test(raw.amountWei)) {
+          throw new AgentkitRuntimeError(
+            ErrorCodes.ADAPTER_REQUEST_FAILED,
+            `order_proof_malformed: status response amountWei is missing or not a base-10 integer string (orderId=${input.orderId}, value=${String(raw.amountWei)}, typeof=${typeof raw.amountWei})`,
+            { raw },
+          );
+        }
+        if (raw.amountWei !== input.amountWei) {
           throw new AgentkitRuntimeError(
             ErrorCodes.INVALID_INPUT,
             `order_proof_mismatch: input.amountWei=${input.amountWei} but on-record order.amountWei=${raw.amountWei} — caller passed a different amount than the order was created with`,
           );
         }
-        if (typeof raw.fromAddress === 'string') {
-          // The order's `fromAddress` is the payer the backend expects to
-          // see broadcasting. Cross-check against the wallet that will
-          // actually broadcast (already chain-validated above). Reuse the
-          // `walletAddr` resolved during the message.payer check above —
-          // avoids a second async getAddress() round-trip (R5 Claude P2).
-          if (raw.fromAddress.toLowerCase() !== walletAddr) {
-            throw new AgentkitRuntimeError(
-              ErrorCodes.INVALID_INPUT,
-              `order_proof_mismatch: order.fromAddress=${raw.fromAddress} but configured wallet address=${walletAddr} — the broadcasting wallet does not match the recorded payer`,
-            );
-          }
+        if (typeof raw.fromAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(raw.fromAddress)) {
+          throw new AgentkitRuntimeError(
+            ErrorCodes.ADAPTER_REQUEST_FAILED,
+            `order_proof_malformed: status response fromAddress is missing or not an EVM address (orderId=${input.orderId}, value=${String(raw.fromAddress)}, typeof=${typeof raw.fromAddress})`,
+            { raw },
+          );
+        }
+        // Reuse `walletAddr` resolved during the message.payer check above —
+        // avoids a second async getAddress() round-trip (R5 Claude P2).
+        if (raw.fromAddress.toLowerCase() !== walletAddr) {
+          throw new AgentkitRuntimeError(
+            ErrorCodes.INVALID_INPUT,
+            `order_proof_mismatch: order.fromAddress=${raw.fromAddress} but configured wallet address=${walletAddr} — the broadcasting wallet does not match the recorded payer`,
+          );
         }
 
         const { txHash } = await payer.transferToken(

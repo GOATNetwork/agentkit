@@ -161,12 +161,33 @@ export class HttpGnsApiAdapter implements GnsApiAdapter {
     // Backend may return `chainId` (settlement chain) without a parallel
     // `payChainId`; surface it under both keys for callers that prefer the
     // more explicit name without breaking the existing shape.
-    const chainId = Number(data.chainId ?? 0);
+    //
+    // R2 Codex similar-issue scan: previously used `Number(data.chainId ?? 0)`
+    // which silently coerced strings ("8453" → 8453) and turned absent /
+    // non-numeric inputs into 0 — the latter then flows into payOrder's
+    // chain-binding check and triggers a confusing "chain_mismatch" error
+    // far downstream. Validate strictly here so the malformed response
+    // surfaces as ADAPTER_REQUEST_FAILED at the adapter layer.
+    if (typeof data.chainId !== 'number' || !Number.isInteger(data.chainId) || data.chainId <= 0) {
+      throw new AgentkitRuntimeError(
+        ErrorCodes.ADAPTER_REQUEST_FAILED,
+        `gns x402 createOrder returned malformed chainId (value=${String(data.chainId)}, typeof=${typeof data.chainId}); expected positive integer`,
+        { raw: data },
+      );
+    }
+    if (typeof data.expiresAt !== 'number' || !Number.isInteger(data.expiresAt) || data.expiresAt <= 0) {
+      throw new AgentkitRuntimeError(
+        ErrorCodes.ADAPTER_REQUEST_FAILED,
+        `gns x402 createOrder returned malformed expiresAt (value=${String(data.expiresAt)}, typeof=${typeof data.expiresAt}); expected positive Unix-seconds integer — refusing to return an order with no enforceable expiry window`,
+        { raw: data },
+      );
+    }
+    const chainId = data.chainId;
     return {
       orderId: String(data.orderId ?? ''),
       flow: String(data.flow ?? 'ERC20_3009'),
       payToAddress: data.payToAddress as `0x${string}`,
-      expiresAt: Number(data.expiresAt ?? 0),
+      expiresAt: data.expiresAt,
       chainId,
       payChainId: chainId,
       tokenSymbol: String(data.tokenSymbol ?? ''),

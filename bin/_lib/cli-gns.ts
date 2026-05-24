@@ -806,6 +806,20 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         };
         const runtime = new ExecutionRuntime(policy, { maxRetries: 0, retryDelayMs: 200, logger: stderrLogger });
         const owner = (await goatWallet.getAddress()) as `0x${string}`;
+        // F4 fix (Issue #3 follow-up): the source-chain payer that
+        // actually broadcasts the ERC-20 transfer in `payOrder` is
+        // `sourcePayer` (signing key = PAYMENT_CHAIN_PRIVATE_KEY ??
+        // GOAT_PRIVATE_KEY). When PAYMENT_CHAIN_PRIVATE_KEY differs from
+        // GOAT_PRIVATE_KEY, the GOAT-side wallet's address is NOT what
+        // will broadcast on the source chain — so sending the GOAT
+        // address as `createOrder.payer` would record the wrong payer
+        // in the order. The 3-way binding inside payOrder would catch
+        // the mismatch but only AFTER commit + createOrder +
+        // submitSignature have already burned gas on GOAT. Use the
+        // actual source-chain wallet address up-front so the order is
+        // recorded correctly the first time and payOrder's binding
+        // becomes a tautology rather than a late-stage tripwire.
+        const sourcePayerAddr = (await sourceWallet.getAddress()) as `0x${string}`;
         const baseCtx: ActionContext = { traceId: `cli_${randomUUID()}`, network: networkKey, now: Date.now() };
 
         // Resolve the GOAT-side payment token by symbol. The backend's
@@ -997,7 +1011,10 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           {
             name,
             owner,
-            payer: owner,
+            // payer = the address that will actually broadcast the
+            // source-chain ERC-20 transfer (NOT the GOAT-side owner).
+            // See F4 commentary at sourcePayerAddr declaration above.
+            payer: sourcePayerAddr,
             years: yearsX402,
             settlementChainId: payChainId,
             // Forward the merchant's CANONICAL symbol (returned by

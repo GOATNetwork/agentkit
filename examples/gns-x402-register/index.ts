@@ -117,6 +117,13 @@ async function main() {
 
   const name = process.env.GNS_DEMO_NAME ?? `agent-${Date.now()}`;
   const owner = await goatWallet.getAddress();
+  // F4 fix: the address that actually broadcasts the source-chain ERC-20
+  // transfer in payOrder is `sourceWallet.getAddress()` (could differ from
+  // `owner` when PAYMENT_CHAIN_PRIVATE_KEY ≠ GOAT_PRIVATE_KEY). Pass it
+  // as `createOrder.payer` so the order is recorded with the correct
+  // payer up-front; otherwise payOrder's 3-way binding would catch the
+  // mismatch only after GOAT-side gas is already burned.
+  const sourcePayerAddr = await sourceWallet.getAddress();
 
   // 0. Resolve GOAT-side payment token by symbol and quote the priced
   // amount. The commit hash binds (GOAT-side paymentToken, maxPaymentAmount)
@@ -207,7 +214,8 @@ async function main() {
     {
       name,
       owner,
-      payer: owner,
+      // F4 fix: source-chain payer, not GOAT-side owner (see sourcePayerAddr above)
+      payer: sourcePayerAddr,
       years: 1,
       settlementChainId,
       settlementTokenSymbol: goatPaymentToken.symbol,
