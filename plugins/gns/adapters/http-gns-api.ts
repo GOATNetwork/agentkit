@@ -161,12 +161,33 @@ export class HttpGnsApiAdapter implements GnsApiAdapter {
     // Backend may return `chainId` (settlement chain) without a parallel
     // `payChainId`; surface it under both keys for callers that prefer the
     // more explicit name without breaking the existing shape.
-    const chainId = Number(data.chainId ?? 0);
+    //
+    // R2 Codex similar-issue scan: previously used `Number(data.chainId ?? 0)`
+    // which silently coerced strings ("8453" → 8453) and turned absent /
+    // non-numeric inputs into 0 — the latter then flows into payOrder's
+    // chain-binding check and triggers a confusing "chain_mismatch" error
+    // far downstream. Validate strictly here so the malformed response
+    // surfaces as ADAPTER_REQUEST_FAILED at the adapter layer.
+    if (typeof data.chainId !== 'number' || !Number.isInteger(data.chainId) || data.chainId <= 0) {
+      throw new AgentkitRuntimeError(
+        ErrorCodes.ADAPTER_REQUEST_FAILED,
+        `gns x402 createOrder returned malformed chainId (value=${String(data.chainId)}, typeof=${typeof data.chainId}); expected positive integer`,
+        { raw: data },
+      );
+    }
+    if (typeof data.expiresAt !== 'number' || !Number.isInteger(data.expiresAt) || data.expiresAt <= 0) {
+      throw new AgentkitRuntimeError(
+        ErrorCodes.ADAPTER_REQUEST_FAILED,
+        `gns x402 createOrder returned malformed expiresAt (value=${String(data.expiresAt)}, typeof=${typeof data.expiresAt}); expected positive Unix-seconds integer — refusing to return an order with no enforceable expiry window`,
+        { raw: data },
+      );
+    }
+    const chainId = data.chainId;
     return {
       orderId: String(data.orderId ?? ''),
       flow: String(data.flow ?? 'ERC20_3009'),
       payToAddress: data.payToAddress as `0x${string}`,
-      expiresAt: Number(data.expiresAt ?? 0),
+      expiresAt: data.expiresAt,
       chainId,
       payChainId: chainId,
       tokenSymbol: String(data.tokenSymbol ?? ''),
@@ -184,9 +205,28 @@ export class HttpGnsApiAdapter implements GnsApiAdapter {
       signal,
       'gns x402 getOrder failed',
     );
+    // FAIL CLOSED on missing status. Previously this defaulted to
+    // 'CHECKOUT_VERIFIED' which, after the Issue #3 gate flip in
+    // x402-pay-order.ts (now `status === 'CHECKOUT_VERIFIED'`), would
+    // silently let a malformed / status-less response pass the gate and
+    // re-broadcast the source-chain transfer. Surface as ADAPTER_REQUEST_FAILED
+    // so the caller sees an explicit upstream error instead of a phantom
+    // payable order.
+    if (typeof data.status !== 'string' || data.status.length === 0) {
+      // Issue #3 Round 1 (Claude): throw a typed runtime error so the
+      // runtime's normalizeError keeps the ADAPTER_REQUEST_FAILED code.
+      // A plain Error would map to INTERNAL_ERROR — caller branches on the
+      // wrong code, and the retry policy reads this as a transient SDK
+      // glitch when it's actually a malformed upstream response.
+      throw new AgentkitRuntimeError(
+        ErrorCodes.ADAPTER_REQUEST_FAILED,
+        `gns x402 getOrder returned no status field (orderId=${orderId}); refusing to default — upstream response is malformed`,
+        { orderId, raw: data },
+      );
+    }
     return {
       orderId,
-      status: String(data.status ?? 'CHECKOUT_VERIFIED'),
+      status: data.status,
       txHash: typeof data.txHash === 'string' ? data.txHash : undefined,
       confirmedAt: typeof data.confirmedAt === 'number' ? data.confirmedAt : undefined,
       raw: data,

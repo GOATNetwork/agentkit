@@ -6,7 +6,11 @@
  *   → x402.createOrder
  *   → x402.submitSignature  (signed by a GOAT-bound EvmPayerWalletAdapter)
  *   → x402.payOrder         (executed by a source-chain-bound EvmPayerWalletAdapter + WalletProvider)
- *   → poll x402.getOrderStatus until PAYMENT_CONFIRMED
+ *   → poll x402.getOrderStatus until INVOICED (true success for DELEGATE
+ *     callback orders — PAYMENT_CONFIRMED only means the source-chain
+ *     transfer landed; INVOICED means the adaptor callback executed on GOAT
+ *     and the .goat name was actually registered) or terminal failure
+ *     (FAILED / EXPIRED / CANCELLED).
  *
  * Wallet requirement: this entire flow needs a real signer on the GOAT
  * adaptor chain (mainnet 2345 / testnet3 48816) AND a real signer + RPC on
@@ -21,11 +25,7 @@
  * the wrong chain or send the ERC-20 transfer on the wrong chain.
  */
 import { JsonRpcProvider, Wallet } from 'ethers';
-import {
-  ActionProvider,
-  ExecutionRuntime,
-  PolicyEngine,
-} from '../../index';
+import { ActionProvider, ExecutionRuntime, PolicyEngine } from '../../index';
 import { EvmWalletProvider } from '../../core/wallet/evm-wallet-provider';
 import { NoopWalletProvider } from '../../core/wallet/noop-wallet-provider';
 import { EvmPayerWalletAdapter } from '../../plugins/x402/adapters/evm-payer-wallet';
@@ -38,6 +38,9 @@ import {
   x402PayOrderAction,
   x402SubmitSignatureAction,
 } from '../../plugins/gns/index';
+import { estimatePriceAction } from '../../plugins/gns/actions/estimate-price';
+import { waitForCommitmentAction } from '../../plugins/gns/actions/wait-for-commitment';
+import { GNS_PAYMENT_TOKENS, resolveGnsPaymentToken } from '../../plugins/gns/constants';
 import { goatNetworks } from '../../networks/goat/config';
 
 async function main() {
@@ -97,6 +100,8 @@ async function main() {
   // uses the source-chain payer adapter.
   const provider = new ActionProvider();
   provider.register(commitAction(contracts, goatWallet));
+  provider.register(waitForCommitmentAction(contracts, goatWallet));
+  provider.register(estimatePriceAction(api));
   provider.register(x402CreateOrderAction(api));
   if (goatPayerAdapter) provider.register(x402SubmitSignatureAction(api, goatPayerAdapter));
   if (sourcePayerAdapter) provider.register(x402PayOrderAction(api, sourcePayerAdapter, sourceWallet));
@@ -112,6 +117,39 @@ async function main() {
 
   const name = process.env.GNS_DEMO_NAME ?? `agent-${Date.now()}`;
   const owner = await goatWallet.getAddress();
+  // F4 fix: the address that actually broadcasts the source-chain ERC-20
+  // transfer in payOrder is `sourceWallet.getAddress()` (could differ from
+  // `owner` when PAYMENT_CHAIN_PRIVATE_KEY ≠ GOAT_PRIVATE_KEY). Pass it
+  // as `createOrder.payer` so the order is recorded with the correct
+  // payer up-front; otherwise payOrder's 3-way binding would catch the
+  // mismatch only after GOAT-side gas is already burned.
+  const sourcePayerAddr = await sourceWallet.getAddress();
+
+  // 0. Resolve GOAT-side payment token by symbol and quote the priced
+  // amount. The commit hash binds (GOAT-side paymentToken, maxPaymentAmount)
+  // — the backend re-derives the same tuple in payments.service.ts:305-308
+  // / names.service.ts:341-344. Using publicResolver (a vestigial
+  // placeholder) or the source-chain token here would make the on-chain
+  // commit hash diverge from the backend's recomputation and break
+  // x402.createOrder with `Commitment does not match registration payload`.
+  const goatPaymentToken = resolveGnsPaymentToken(networkKey, settlementSymbol);
+  if (!goatPaymentToken) {
+    const known = (GNS_PAYMENT_TOKENS[networkKey] ?? []).map((t) => t.symbol).join(', ') || 'none';
+    throw new Error(
+      `Unsupported GNS_X402_SETTLEMENT_SYMBOL "${settlementSymbol}" on ${networkKey}; the GNS commit binds a GOAT-side token (known: ${known}).`,
+    );
+  }
+
+  console.log('▶ estimatePrice (GOAT-side, sets commit-bound amount)');
+  const quote = await runtime.run(
+    provider.get('goat.gns.estimatePrice'),
+    baseCtx,
+    { name, years: 1, tokenContract: goatPaymentToken.address },
+    { confirmed: true },
+  );
+  console.log('  ↳', quote.output);
+  if (!quote.ok || !quote.output) return;
+  const goatAmountWei = (quote.output as { totalWei: string }).totalWei;
 
   // 1. Commit on GOAT.
   console.log('▶ commit');
@@ -122,16 +160,53 @@ async function main() {
       name,
       owner,
       years: 1,
-      paymentTokenAddress: contracts.publicResolver, // placeholder when DEMO_MOCK; real run uses GOAT-side token
-      paymentTokenSymbol: settlementSymbol,
-      amountWei: '3000000000000000000',
+      paymentTokenAddress: goatPaymentToken.address,
+      paymentTokenSymbol: goatPaymentToken.symbol,
+      amountWei: goatAmountWei,
     },
     { confirmed: true },
   );
   console.log('  ↳', commit.output);
   if (!commit.ok || !commit.output) return;
 
-  // 2. Create x402 order.
+  // 1b. Wait for the reveal window. The backend rejects createOrder with
+  // `Commitment is not ready to reveal yet` if `block.timestamp < revealAt`
+  // (goat-ens backend names.service.ts:300-304, called from
+  // payments.service.ts:374). Skip in DEMO_MOCK since the NoopWalletProvider
+  // can't read the chain — the order will fail anyway under mock signers.
+  if (!demoMock) {
+    console.log('▶ waitForCommitment (poll until block.timestamp ≥ revealAt)');
+    const waitDeadline = Date.now() + 180_000;
+    for (;;) {
+      const wait = await runtime.run(
+        provider.get('goat.gns.waitForCommitment'),
+        baseCtx,
+        { commitment: commit.output.commitment },
+        { confirmed: true },
+      );
+      console.log('  ↳', wait.output);
+      if (!wait.ok || !wait.output) return;
+      const out = wait.output as { isReady: boolean; isExpired: boolean };
+      if (out.isExpired) {
+        console.error('commitment expired before reveal window opened; re-run');
+        return;
+      }
+      if (out.isReady) break;
+      if (Date.now() >= waitDeadline) {
+        console.error('reveal window did not open within 180s');
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 10_000));
+    }
+  }
+
+  // 2. Create x402 order. We pin commitMaxAmountWei to the same value
+  // baked into the commit hash so the backend's strict-equality check at
+  // payments.service.ts:343 / 346-353 passes. We also forward the CANONICAL
+  // symbol from goatPaymentToken (not the raw GNS_X402_SETTLEMENT_SYMBOL)
+  // so the backend's requestedSymbol === canonicalSymbol check at
+  // payments.service.ts:266-272 passes for callers passing aliases like
+  // `TUSDT` for `USDT`.
   console.log('▶ x402.createOrder');
   const order = await runtime.run(
     provider.get('goat.gns.x402.createOrder'),
@@ -139,13 +214,15 @@ async function main() {
     {
       name,
       owner,
-      payer: owner,
+      // F4 fix: source-chain payer, not GOAT-side owner (see sourcePayerAddr above)
+      payer: sourcePayerAddr,
       years: 1,
       settlementChainId,
-      settlementTokenSymbol: settlementSymbol,
-      settlementTokenContract: settlementTokenContract ?? ('0x' + '0'.repeat(40)) as `0x${string}`,
+      settlementTokenSymbol: goatPaymentToken.symbol,
+      settlementTokenContract: settlementTokenContract ?? (('0x' + '0'.repeat(40)) as `0x${string}`),
       secret: commit.output.secret,
       commitment: commit.output.commitment,
+      commitMaxAmountWei: goatAmountWei,
     },
     { confirmed: true },
   );
@@ -166,28 +243,49 @@ async function main() {
   console.log('  ↳', signed.output);
   if (!signed.ok) return;
 
-  // 4. Pay on source chain.
+  // 4. Pay on source chain. payOrder takes the createOrder response's
+  // payment routing fields as inputs (payToAddress / tokenContract /
+  // amountWei / expiresAt / payChainId). The status endpoint is a
+  // lifecycle-only projection that does NOT carry these fields, so the
+  // SDK threads them through from createOrder instead of re-fetching.
   console.log('▶ x402.payOrder (source-chain ERC-20 transfer)');
   const sourceCtx = { ...baseCtx, network: 'source' };
   const paid = await runtime.run(
     provider.get('goat.gns.x402.payOrder'),
     sourceCtx,
-    { orderId: order.output.orderId },
+    {
+      orderId: order.output.orderId,
+      payChainId: order.output.payChainId,
+      tokenContract: order.output.tokenContract,
+      payToAddress: order.output.payToAddress,
+      amountWei: order.output.amountWei,
+      expiresAt: order.output.expiresAt,
+      // Threaded so payOrder's defense-in-depth gate can cross-check
+      // input.payToAddress against the merchant's signed authorization
+      // (Issue #3 Round 2 — Codex P1).
+      calldataSignRequest: order.output.calldataSignRequest,
+    },
     { confirmed: true },
   );
   console.log('  ↳', paid.output);
   if (!paid.ok) return;
 
-  // 5. Poll status.
+  // 5. Poll status until INVOICED (true success for DELEGATE/callback orders —
+  // PAYMENT_CONFIRMED only means the source-chain transfer landed; INVOICED
+  // means the adaptor callback executed on GOAT and the name is registered).
+  // Terminal failure states: FAILED, EXPIRED, CANCELLED.
   console.log('▶ x402.getOrderStatus (poll every 10s, max 5 min)');
   const deadline = Date.now() + 5 * 60_000;
   while (Date.now() < deadline) {
     const status = await runtime.run(provider.get('goat.gns.x402.getOrderStatus'), baseCtx, {
       orderId: order.output.orderId,
     });
-    console.log('  ↳', status.output?.status);
-    if (status.output?.status === 'PAYMENT_CONFIRMED' || status.output?.status === 'INVOICED') break;
-    if (status.output?.status === 'FAILED' || status.output?.status === 'EXPIRED') break;
+    const s = status.output?.status;
+    console.log('  ↳', s);
+    // Stop only on the true terminal states. PAYMENT_CONFIRMED is
+    // intermediate for DELEGATE/callback orders.
+    if (s === 'INVOICED') break;
+    if (s === 'FAILED' || s === 'EXPIRED' || s === 'CANCELLED') break;
     await new Promise((r) => setTimeout(r, 10_000));
   }
 }

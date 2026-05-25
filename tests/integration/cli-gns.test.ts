@@ -84,4 +84,16 @@ describe('agentkit-gns CLI', () => {
     expect(parsed).toHaveProperty('wallet');
     expect(Array.isArray(parsed.env)).toBe(true);
   });
+
+  it('register rejects invalid wait polling flags before wallet setup', async () => {
+    for (const [flag, value] of [
+      ['--wait-timeout', 'abc'],
+      ['--poll-interval', '0'],
+    ] as const) {
+      const { stderr, code } = await runCli(['--json', '--auto-confirm', 'register', 'newagent', flag, value]);
+      expect(code, `${flag}=${value} should fail as user input`).toBe(1);
+      expect(stderr).toContain(flag);
+      expect(stderr).not.toMatch(/GOAT_PRIVATE_KEY|PRIVATE_KEY/);
+    }
+  });
 });

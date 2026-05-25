@@ -19,12 +19,18 @@ export class EvmPayerWalletAdapter implements PayerWalletAdapter {
     return Number(net.chainId);
   }
 
+  /**
+   * Address of the signer that will broadcast `transferToken`. Distinct
+   * from any adjacent `WalletProvider.getAddress()` if the action wires
+   * the wallet and payer to different signers. Cross-chain x402 actions
+   * use this for the 3-way payer-binding check (Issue #3 R4 Codex P5).
+   */
+  async getAddress(): Promise<string> {
+    return this.signer.getAddress();
+  }
+
   async signCalldataTypedData(request: CalldataSignRequest): Promise<string> {
-    const signature = await this.signer.signTypedData(
-      request.domain,
-      request.types as any,
-      request.message
-    );
+    const signature = await this.signer.signTypedData(request.domain, request.types as any, request.message);
     return signature;
   }
 

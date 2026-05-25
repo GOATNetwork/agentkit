@@ -1,7 +1,7 @@
 {
-  "_comment": "Frozen X402OrderResponse fixture. Synthesised from plugins/gns/adapters/types.ts and the goat-ens backend payments.service.ts return shape (no live spec file exists). Used by tests/integration/gns-x402-flow.test.ts to assert the createOrder -> submitSignature -> payOrder -> getOrderStatus flow.",
+  "_comment": "Frozen X402OrderResponse fixture mirroring the production Permit2CallbackData shape returned by gns-api on 2026-05-23 (verified live: GNS mainnet, BSC USDT order). The Eip3009 shape was used by an older backend; production now signs Permit2CallbackData which includes message.owner = the merchant's payment-receive address. Used by tests/integration/gns-x402-flow.test.ts to assert the createOrder -> submitSignature -> payOrder -> getOrderStatus flow + the Issue #3 R3 defense-in-depth gates (owner binding, x402Config chain+token binding).",
   "orderId": "register:alice.goat:0x39573c7798c3d92ec4f5e5d6a0c2f5e6b7c8d9e0:1716192000000",
-  "flow": "ERC20_3009",
+  "flow": "ERC20_TRANSFER",
   "payToAddress": "0x000000000000000000000000000000000000bEEF",
   "expiresAt": 9999999999,
   "chainId": 8453,
@@ -13,25 +13,35 @@
   "callbackCalldata": "0x0000000000000000000000000000000000000000000000000000000000000001",
   "calldataSignRequest": {
     "domain": {
-      "name": "GoatX402",
+      "name": "GNS X402 Adaptor",
       "version": "1",
-      "chainId": 48816,
-      "verifyingContract": "0xB12e68Dad886477852CC141beb3961D9C20580cA"
+      "chainId": 2345,
+      "verifyingContract": "0xC0cEB3b632B0264b739BE115604D1911917d5471"
     },
     "types": {
-      "Eip3009CallbackData": [
+      "Permit2CallbackData": [
+        { "name": "permit2", "type": "address" },
+        { "name": "token", "type": "address" },
+        { "name": "owner", "type": "address" },
         { "name": "payer", "type": "address" },
         { "name": "amount", "type": "uint256" },
-        { "name": "orderId", "type": "string" },
-        { "name": "callbackCalldata", "type": "bytes" }
+        { "name": "orderId", "type": "bytes32" },
+        { "name": "calldataNonce", "type": "uint256" },
+        { "name": "deadline", "type": "uint256" },
+        { "name": "calldataHash", "type": "bytes32" }
       ]
     },
-    "primaryType": "Eip3009CallbackData",
+    "primaryType": "Permit2CallbackData",
     "message": {
+      "permit2": "0x000000000022d473030f116ddee9f6b43ac78ba3",
+      "token": "0xe1ad845d93853fff44990ae0dcecd8575293681e",
+      "owner": "0x000000000000000000000000000000000000bEEF",
       "payer": "0x39573c7798c3d92Ec4f5e5d6A0C2f5E6B7C8d9e0",
       "amount": "3000000",
-      "orderId": "register:alice.goat:0x39573c7798c3d92ec4f5e5d6a0c2f5e6b7c8d9e0:1716192000000",
-      "callbackCalldata": "0x0000000000000000000000000000000000000000000000000000000000000001"
+      "orderId": "0x40d1d882583173f93b718c23fbcd4b1f3aea1756687c7d88ea7c4209e96e4293",
+      "calldataNonce": "0",
+      "deadline": "9999999999",
+      "calldataHash": "0x10020c01051c60436263526767621cd42dcd565c243c52f70d5aaa4aa14be256"
     }
   }
 }
