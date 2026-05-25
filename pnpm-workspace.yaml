@@ -1,7 +1,14 @@
 packages:
-  - "."
-  - "packages/*"
+  - '.'
+  - 'packages/*'
 allowBuilds:
   esbuild: set this to true or false
 onlyBuiltDependencies:
   - esbuild
+# Force a patched `ws` across all transitive paths. Both ethers (8.17.1)
+# and viem (8.18.3) currently pin a `ws` below the patched 8.20.1; the
+# advisory (GHSA-58qx-3vcg-4xpx, moderate, uninitialized-memory disclosure)
+# only matters for agents that explicitly use a WebSocket RPC transport,
+# but the override is cheap and clears the audit warning.
+overrides:
+  ws: ^8.20.1

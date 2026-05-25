@@ -157,9 +157,26 @@ export interface X402OrderResponse {
   calldataSignRequest: CalldataSignRequest;
 }
 
+/**
+ * GNS x402 order lifecycle. Authoritative source:
+ * `goat-ens/backend/lib/goatx402-sdk-server/src/types.ts:69-76`
+ * (the upstream GoatX402 service enum).
+ *
+ * Sequence for a DELEGATE / callback registration:
+ *   CHECKOUT_VERIFIED   ← payable (agent broadcasts source-chain transfer)
+ *   PAYMENT_CONFIRMED   ← upstream watcher detected the transfer
+ *   INVOICED            ← adaptor callback executed on GOAT (registration finalized — true success)
+ *
+ * Terminal failure states: FAILED, EXPIRED, CANCELLED.
+ *
+ * NOTE: `PAYMENT_PENDING` is intentionally NOT included — the backend
+ * never emits it. Earlier SDK builds gated on it by mistake, which
+ * Issue #3 corrected. The giftcard plugin uses its own `GiftcardOrderStatus`
+ * type (which does include `PAYMENT_PENDING`) against a separate backend;
+ * the two lifecycles must not be conflated.
+ */
 export type X402OrderLifecycle =
   | 'CHECKOUT_VERIFIED'
-  | 'PAYMENT_PENDING'
   | 'PAYMENT_CONFIRMED'
   | 'INVOICED'
   | 'FAILED'
@@ -192,11 +209,7 @@ export interface GnsApiAdapter {
   x402Config(signal?: AbortSignal): Promise<X402MerchantConfigResponse>;
   createX402Order(input: CreateX402OrderInput, signal?: AbortSignal): Promise<X402OrderResponse>;
   getX402Order(orderId: string, signal?: AbortSignal): Promise<X402OrderStatusResponse>;
-  submitX402Signature(
-    orderId: string,
-    signature: string,
-    signal?: AbortSignal,
-  ): Promise<X402SubmitSignatureResponse>;
+  submitX402Signature(orderId: string, signature: string, signal?: AbortSignal): Promise<X402SubmitSignatureResponse>;
 }
 
 // Re-export for consumer convenience.

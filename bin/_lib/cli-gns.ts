@@ -206,8 +206,20 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         const networkKey = GNS_NETWORK;
         const contracts = getGnsContracts(networkKey);
         const api = getApi(globals);
-        const { authWallet: wallet } = createWalletPair({ network: networkKey, allowMock: globals.dryRun === true });
         const years = Number(cmdOpts.years);
+        const waitTimeoutSec = Number(cmdOpts.waitTimeout);
+        if (!Number.isFinite(waitTimeoutSec) || waitTimeoutSec <= 0) {
+          status('error', `--wait-timeout must be a positive number of seconds, got: ${cmdOpts.waitTimeout}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const pollIntervalSec = Number(cmdOpts.pollInterval);
+        if (!Number.isFinite(pollIntervalSec) || pollIntervalSec <= 0) {
+          status('error', `--poll-interval must be a positive number of seconds, got: ${cmdOpts.pollInterval}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const { authWallet: wallet } = createWalletPair({ network: networkKey, allowMock: globals.dryRun === true });
         const owner = (cmdOpts.owner ?? (await wallet.getAddress())) as `0x${string}`;
 
         if (globals.dryRun) {
@@ -313,8 +325,8 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
 
         // Wait — poll the on-chain reveal window. minCommitmentAge is 60s, so a
         // single immediate check always fails; poll until isReady or timeout.
-        const waitTimeoutMs = Math.max(0, Number(cmdOpts.waitTimeout) * 1000);
-        const pollIntervalMs = Math.max(1000, Number(cmdOpts.pollInterval) * 1000);
+        const waitTimeoutMs = waitTimeoutSec * 1000;
+        const pollIntervalMs = Math.max(1000, pollIntervalSec * 1000);
         const deadline = Date.now() + waitTimeoutMs;
         let ready = false;
         let lastWait: Awaited<ReturnType<typeof runAction>> | undefined;
@@ -530,10 +542,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           const renewOwner = String(ownerRaw ?? ZERO_ADDRESS).toLowerCase();
           const caller = (await wallet.getAddress()).toLowerCase();
           if (renewOwner === ZERO_ADDRESS || renewOwner !== caller) {
-            status(
-              'error',
-              `caller is not the name owner (name="${fullName}", owner=${renewOwner}, caller=${caller})`,
-            );
+            status('error', `caller is not the name owner (name="${fullName}", owner=${renewOwner}, caller=${caller})`);
             process.exitCode = ExitCodes.POLICY_BLOCKED;
             return;
           }
@@ -542,9 +551,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           // or plain Error here; map appropriately.
           const message = err instanceof Error ? err.message : String(err);
           status('error', `renew preflight failed: ${message}`);
-          process.exitCode = message.includes('Invalid GNS name')
-            ? ExitCodes.USER_INPUT
-            : ExitCodes.ADAPTER;
+          process.exitCode = message.includes('Invalid GNS name') ? ExitCodes.USER_INPUT : ExitCodes.ADAPTER;
           return;
         }
 
@@ -678,10 +685,19 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
     .option('--pay-chain <chainId>', 'Source chain id', '8453')
     .option('--pay-token <symbol>', 'Source token symbol', 'USDC')
     .option('--pay-token-contract <address>', 'Source token contract address')
+    .option('--wait-timeout <sec>', 'Max seconds to poll for the commit reveal window (minCommitmentAge is 60s)', '180')
+    .option('--poll-interval <sec>', 'Seconds between commit-readiness polls', '10')
     .action(
       async (
         name: string,
-        cmdOpts: { years: string; payChain: string; payToken: string; payTokenContract?: string },
+        cmdOpts: {
+          years: string;
+          payChain: string;
+          payToken: string;
+          payTokenContract?: string;
+          waitTimeout: string;
+          pollInterval: string;
+        },
       ) => {
         const globals = getGlobals(program);
         const fmt = format(globals);
@@ -695,12 +711,33 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           process.exitCode = ExitCodes.USER_INPUT;
           return;
         }
+        const waitTimeoutSec = Number(cmdOpts.waitTimeout);
+        if (!Number.isFinite(waitTimeoutSec) || waitTimeoutSec <= 0) {
+          status('error', `--wait-timeout must be a positive number of seconds, got: ${cmdOpts.waitTimeout}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+        const pollIntervalSec = Number(cmdOpts.pollInterval);
+        if (!Number.isFinite(pollIntervalSec) || pollIntervalSec <= 0) {
+          status('error', `--poll-interval must be a positive number of seconds, got: ${cmdOpts.pollInterval}`);
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
 
         if (globals.dryRun) {
           emit(
             {
               dryRun: true,
-              plan: ['commit', 'x402.createOrder', 'x402.submitSignature', 'x402.payOrder', 'x402.getOrderStatus'],
+              plan: [
+                'x402.config (preflight)',
+                'estimatePrice',
+                'commit',
+                'waitForCommitment',
+                'x402.createOrder',
+                'x402.submitSignature',
+                'x402.payOrder',
+                'x402.getOrderStatus',
+              ],
               name,
               years: Number(cmdOpts.years),
               payChain: payChainId,
@@ -730,10 +767,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         // then we've already burned a `commit(...)` on the GOAT chain.
         // Refuse early on a malformed address.
         if (!/^0x[0-9a-fA-F]{40}$/.test(cmdOpts.payTokenContract)) {
-          status(
-            'error',
-            `--pay-token-contract must be a 40-hex EVM address, got: ${cmdOpts.payTokenContract}`,
-          );
+          status('error', `--pay-token-contract must be a 40-hex EVM address, got: ${cmdOpts.payTokenContract}`);
           process.exitCode = ExitCodes.USER_INPUT;
           return;
         }
@@ -765,10 +799,7 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
               return;
             }
           } catch (err) {
-            status(
-              'error',
-              `failed to read source wallet chainId: ${(err as Error).message}`,
-            );
+            status('error', `failed to read source wallet chainId: ${(err as Error).message}`);
             process.exitCode = ExitCodes.ADAPTER;
             return;
           }
@@ -780,6 +811,8 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         // Use a single ActionProvider so we can route across networks.
         const provider = new ActionProvider();
         provider.register(commitAction(contracts, goatWallet));
+        provider.register(waitForCommitmentAction(contracts, goatWallet));
+        provider.register(estimatePriceAction(api));
         provider.register(x402CreateOrderAction(api));
         provider.register(x402SubmitSignatureAction(api, goatPayer));
         provider.register(x402PayOrderAction(api, sourcePayer, sourceWallet));
@@ -797,7 +830,124 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         };
         const runtime = new ExecutionRuntime(policy, { maxRetries: 0, retryDelayMs: 200, logger: stderrLogger });
         const owner = (await goatWallet.getAddress()) as `0x${string}`;
+        // F4 fix (Issue #3 follow-up): the source-chain payer that
+        // actually broadcasts the ERC-20 transfer in `payOrder` is
+        // `sourcePayer` (signing key = PAYMENT_CHAIN_PRIVATE_KEY ??
+        // GOAT_PRIVATE_KEY). When PAYMENT_CHAIN_PRIVATE_KEY differs from
+        // GOAT_PRIVATE_KEY, the GOAT-side wallet's address is NOT what
+        // will broadcast on the source chain — so sending the GOAT
+        // address as `createOrder.payer` would record the wrong payer
+        // in the order. The 3-way binding inside payOrder would catch
+        // the mismatch but only AFTER commit + createOrder +
+        // submitSignature have already burned gas on GOAT. Use the
+        // actual source-chain wallet address up-front so the order is
+        // recorded correctly the first time and payOrder's binding
+        // becomes a tautology rather than a late-stage tripwire.
+        const sourcePayerAddr = (await sourceWallet.getAddress()) as `0x${string}`;
         const baseCtx: ActionContext = { traceId: `cli_${randomUUID()}`, network: networkKey, now: Date.now() };
+
+        // Resolve the GOAT-side payment token by symbol. The backend's
+        // createRegistrationOrder re-derives the commit hash using
+        // `paymentTokenAddressFromSymbol(symbol)` on the GOAT chain
+        // (goat-ens backend payments.service.ts:305-308, names.service.ts:341-344),
+        // NOT the source-chain --pay-token-contract. Passing publicResolver
+        // or the source-chain token here would bake the wrong paymentToken
+        // into the on-chain commit hash and the backend would reject the
+        // order with `Commitment does not match registration payload`.
+        const goatPaymentToken = resolveGnsPaymentToken(networkKey, cmdOpts.payToken);
+        if (!goatPaymentToken) {
+          const known = (GNS_PAYMENT_TOKENS[networkKey] ?? []).map((t) => t.symbol).join(', ') || 'none';
+          status(
+            'error',
+            `unsupported --pay-token "${cmdOpts.payToken}" for GNS on ${networkKey}; the commit hash binds a GOAT-side token (known: ${known})`,
+          );
+          process.exitCode = ExitCodes.USER_INPUT;
+          return;
+        }
+
+        // Preflight the (payChainId, settlementSymbol, settlementTokenContract)
+        // trio against the merchant's x402 config BEFORE the GOAT commit tx
+        // fires. The backend's resolveMerchantToken (payments.service.ts:240-286)
+        // rejects unknown combinations, and the strict-equality check on
+        // requestedSymbol vs canonicalSymbol (payments.service.ts:266-272)
+        // rejects symbol/address mismatches. Without this preflight, the user
+        // burns a commit + approve + signature only to fail at createOrder.
+        // Using the canonical symbol from goatPaymentToken below means the
+        // request symbol is already normalized; this preflight catches the
+        // remaining failure modes (wrong chain, wrong contract address).
+        try {
+          const cfg = await api.x402Config();
+          // Defensive guard: the adapter's Zod schema validates response shape,
+          // but a misbehaving server could still return malformed JSON. Without
+          // this guard a `chains: undefined` would throw TypeError from .find,
+          // which our catch block would then surface as ADAPTER_REQUEST_FAILED
+          // — the user-input vs adapter-failure distinction would be lost.
+          if (!Array.isArray(cfg?.chains)) {
+            status('error', `merchant x402 config returned no chains list (malformed response)`);
+            process.exitCode = ExitCodes.ADAPTER;
+            return;
+          }
+          const chainCfg = cfg.chains.find((c) => c.chainId === payChainId);
+          if (!chainCfg) {
+            const known = cfg.chains.map((c) => `${c.name}(${c.chainId})`).join(', ') || 'none';
+            status('error', `--pay-chain ${payChainId} is not in the merchant's x402 config (supported: ${known})`);
+            process.exitCode = ExitCodes.USER_INPUT;
+            return;
+          }
+          const wantAddress = cmdOpts.payTokenContract.toLowerCase();
+          const matchByAddress = chainCfg.tokens.find((t) => t.contract.toLowerCase() === wantAddress);
+          if (!matchByAddress) {
+            const known = chainCfg.tokens.map((t) => `${t.symbol}=${t.contract}`).join(', ') || 'none';
+            status(
+              'error',
+              `--pay-token-contract ${cmdOpts.payTokenContract} is not a supported x402 token on chain ${payChainId} (supported: ${known})`,
+            );
+            process.exitCode = ExitCodes.USER_INPUT;
+            return;
+          }
+          // Compare the merchant's symbol against the CANONICAL form
+          // (goatPaymentToken.symbol after alias normalization), not the raw
+          // --pay-token. The downstream commit + createOrder calls forward
+          // the canonical form (payments.service.ts:266 backend), so a raw
+          // comparison here would false-reject inputs that the backend
+          // would accept (e.g. --pay-token TUSDT vs merchant symbol USDT).
+          // Both sides .toUpperCase() to mirror the backend's normalization.
+          if (matchByAddress.symbol.toUpperCase() !== goatPaymentToken.symbol.toUpperCase()) {
+            status(
+              'error',
+              `--pay-token "${cmdOpts.payToken}" (canonical "${goatPaymentToken.symbol}") does not match the merchant's symbol "${matchByAddress.symbol}" for contract ${cmdOpts.payTokenContract} on chain ${payChainId}`,
+            );
+            process.exitCode = ExitCodes.USER_INPUT;
+            return;
+          }
+        } catch (err) {
+          // Network/auth errors reaching the x402 config endpoint. Fail
+          // closed: a money path with an unverified merchant is worse than
+          // a noisy startup failure.
+          status('error', `failed to load merchant x402 config: ${(err as Error).message}`);
+          process.exitCode = ExitCodes.ADAPTER;
+          return;
+        }
+
+        // Quote the GOAT-side priced amount via the same /names/quote
+        // endpoint the backend's makeRegistrationCommitment uses internally.
+        // The commit hash binds this exact value (maxPaymentAmount), and
+        // we forward the same value to createOrder as commitMaxAmountWei
+        // so the backend re-derives a matching hash. The strict-equality
+        // check at payments.service.ts:346-353 rejects any drift between
+        // the committed cap and the live quote.
+        const quoteRun = await runtime.run(
+          provider.get('goat.gns.estimatePrice'),
+          baseCtx,
+          { name, years: yearsX402, tokenContract: goatPaymentToken.address },
+          { confirmed: true },
+        );
+        reportResult(quoteRun, fmt);
+        if (!quoteRun.ok || !quoteRun.output) {
+          process.exitCode = classifyExitCode(quoteRun.errorCode, quoteRun.error);
+          return;
+        }
+        const goatAmountWei = (quoteRun.output as { totalWei: string }).totalWei;
 
         const commitActionDef = provider.get('goat.gns.commit');
         const commit = await runtime.run(
@@ -806,10 +956,10 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           {
             name,
             owner,
-            years: Number(cmdOpts.years),
-            paymentTokenAddress: contracts.publicResolver,
-            paymentTokenSymbol: cmdOpts.payToken,
-            amountWei: '0',
+            years: yearsX402,
+            paymentTokenAddress: goatPaymentToken.address,
+            paymentTokenSymbol: goatPaymentToken.symbol,
+            amountWei: goatAmountWei,
           },
           globals.revealSecrets ? { confirmed: true, revealedFields: ['secret'] } : { confirmed: true },
         );
@@ -827,19 +977,85 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         }
         const commitOut = commit.output as unknown as CommitOutput;
 
+        // Wait for the on-chain commitment to enter the reveal window before
+        // calling createOrder. The backend's createRegistrationOrder calls
+        // `ensureCommitmentReady(commitment)` (payments.service.ts:374,
+        // names.service.ts:300-304) which rejects if
+        // `latestBlock.timestamp < revealAt`. Without this loop the order
+        // creation almost always fails right after a fresh commit, since
+        // minCommitmentAge is 60s.
+        const waitTimeoutMs = waitTimeoutSec * 1000;
+        const pollIntervalMs = Math.max(1000, pollIntervalSec * 1000);
+        const waitDeadline = Date.now() + waitTimeoutMs;
+        let waitReady = false;
+        let lastWait: Awaited<ReturnType<typeof runtime.run>> | undefined;
+        for (;;) {
+          lastWait = await runtime.run(
+            provider.get('goat.gns.waitForCommitment'),
+            baseCtx,
+            { commitment: commitOut.commitment },
+            { confirmed: true },
+          );
+          if (!lastWait.ok || !lastWait.output) {
+            reportResult(lastWait, fmt);
+            process.exitCode = classifyExitCode(lastWait.errorCode, lastWait.error);
+            return;
+          }
+          const out = lastWait.output as { isReady?: boolean; isExpired?: boolean };
+          if (out.isExpired) {
+            status('error', 'commitment expired before reveal window opened; re-run x402-register to start over');
+            process.exitCode = ExitCodes.CHAIN_OR_STATE;
+            return;
+          }
+          if (out.isReady) {
+            waitReady = true;
+            break;
+          }
+          if (Date.now() >= waitDeadline) break;
+          const remaining = Math.ceil((waitDeadline - Date.now()) / 1000);
+          status(
+            'info',
+            `commit not yet revealable; polling again in ${pollIntervalMs / 1000}s (timeout in ${remaining}s)`,
+          );
+          await new Promise((r) => setTimeout(r, Math.min(pollIntervalMs, Math.max(0, waitDeadline - Date.now()))));
+        }
+        reportResult(lastWait, fmt);
+        if (!waitReady) {
+          status(
+            'error',
+            `commit reveal window did not open within ${cmdOpts.waitTimeout}s; re-run x402-register (the commit persists on-chain up to maxCommitmentAge)`,
+          );
+          process.exitCode = ExitCodes.CHAIN_OR_STATE;
+          return;
+        }
+
         const order = await runtime.run(
           provider.get('goat.gns.x402.createOrder'),
           baseCtx,
           {
             name,
             owner,
-            payer: owner,
-            years: Number(cmdOpts.years),
+            // payer = the address that will actually broadcast the
+            // source-chain ERC-20 transfer (NOT the GOAT-side owner).
+            // See F4 commentary at sourcePayerAddr declaration above.
+            payer: sourcePayerAddr,
+            years: yearsX402,
             settlementChainId: payChainId,
-            settlementTokenSymbol: cmdOpts.payToken,
+            // Forward the merchant's CANONICAL symbol (returned by
+            // resolveGnsPaymentToken after normalization). Sending the raw
+            // user-supplied --pay-token would trip the backend's
+            // requestedSymbol !== canonicalSymbol check at
+            // payments.service.ts:266-272 when callers pass merchant aliases
+            // like `TUSDT` for `USDT`.
+            settlementTokenSymbol: goatPaymentToken.symbol,
             settlementTokenContract: cmdOpts.payTokenContract,
             secret: commitOut.secret,
             commitment: commitOut.commitment,
+            // Pin the commit-bound max amount so the backend re-derives the
+            // same hash on its strict-equality path (payments.service.ts:343).
+            // Omitting this would let the backend fall back to a live quote
+            // that could drift from the on-chain committed cap and reject.
+            commitMaxAmountWei: goatAmountWei,
           },
           { confirmed: true },
         );
@@ -848,7 +1064,18 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           process.exitCode = ExitCodes.ADAPTER;
           return;
         }
-        const orderOut = order.output as { orderId: string; calldataSignRequest: unknown };
+        // Capture full createOrder payload — payOrder now requires the
+        // payment routing fields as inputs (Issue #3 fix). The status
+        // endpoint does NOT carry them.
+        const orderOut = order.output as {
+          orderId: string;
+          calldataSignRequest: unknown;
+          payToAddress: `0x${string}`;
+          tokenContract: `0x${string}`;
+          amountWei: string;
+          expiresAt: number;
+          payChainId: number;
+        };
 
         const signed = await runtime.run(
           provider.get('goat.gns.x402.submitSignature'),
@@ -869,7 +1096,19 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
         const paid = await runtime.run(
           provider.get('goat.gns.x402.payOrder'),
           sourceCtx,
-          { orderId: orderOut.orderId },
+          {
+            orderId: orderOut.orderId,
+            // Source-of-truth comes from createOrder, NOT from refetching
+            // the lifecycle-only status endpoint (Issue #3 R1).
+            // calldataSignRequest is threaded for the proof-binding gate
+            // that catches caller-side routing tampering (Issue #3 R2).
+            payChainId: orderOut.payChainId,
+            tokenContract: orderOut.tokenContract,
+            payToAddress: orderOut.payToAddress,
+            amountWei: orderOut.amountWei,
+            expiresAt: orderOut.expiresAt,
+            calldataSignRequest: orderOut.calldataSignRequest,
+          },
           { confirmed: true },
         );
         reportResult(paid, fmt);
@@ -878,11 +1117,57 @@ export async function runGnsCli(argv: readonly string[]): Promise<ExitCode> {
           return;
         }
 
-        const statusRes = await runtime.run(provider.get('goat.gns.x402.getOrderStatus'), baseCtx, {
-          orderId: orderOut.orderId,
-        });
-        reportResult(statusRes, fmt);
-        process.exitCode = statusRes.ok ? ExitCodes.SUCCESS : classifyExitCode(statusRes.errorCode, statusRes.error);
+        // Poll until terminal state. The upstream GoatX402 service flips
+        // CHECKOUT_VERIFIED → PAYMENT_CONFIRMED (transfer landed on source
+        // chain) → INVOICED (adaptor callback executed on GOAT — name
+        // actually registered). For DELEGATE/callback orders, INVOICED is
+        // the true success state per the frontend reference at
+        // goat-ens/frontend/.../crossChainRegistrationSubmissionFlow.ts:100-102.
+        // FAILED / EXPIRED / CANCELLED are terminal failures.
+        const statusPollTimeoutMs = 5 * 60_000; // 5 min wall-clock cap
+        const statusPollIntervalMs = 5_000;
+        const statusPollDeadline = Date.now() + statusPollTimeoutMs;
+        let lastStatus: Awaited<ReturnType<typeof runtime.run>> | undefined;
+        let terminalKind: 'success' | 'failed' | 'timeout' = 'timeout';
+        for (;;) {
+          lastStatus = await runtime.run(provider.get('goat.gns.x402.getOrderStatus'), baseCtx, {
+            orderId: orderOut.orderId,
+          });
+          if (!lastStatus.ok || !lastStatus.output) {
+            // Single failed status read is non-fatal mid-poll (upstream may
+            // be briefly unavailable); surface and continue until deadline.
+            status('warn', `getOrderStatus failed mid-poll: ${lastStatus.error ?? '<unknown>'}`);
+          } else {
+            const s = (lastStatus.output as { status: string }).status;
+            status('info', `order status: ${s}`);
+            if (s === 'INVOICED') {
+              terminalKind = 'success';
+              break;
+            }
+            if (s === 'FAILED' || s === 'EXPIRED' || s === 'CANCELLED') {
+              terminalKind = 'failed';
+              break;
+            }
+            // PAYMENT_CONFIRMED is intermediate for DELEGATE orders — keep polling.
+          }
+          if (Date.now() >= statusPollDeadline) break;
+          await new Promise((r) =>
+            setTimeout(r, Math.min(statusPollIntervalMs, Math.max(0, statusPollDeadline - Date.now()))),
+          );
+        }
+        if (lastStatus) reportResult(lastStatus, fmt);
+        if (terminalKind === 'success') {
+          process.exitCode = ExitCodes.SUCCESS;
+        } else if (terminalKind === 'failed') {
+          status('error', `order reached terminal failure state; check the status output above`);
+          process.exitCode = ExitCodes.CHAIN_OR_STATE;
+        } else {
+          status(
+            'error',
+            `order did not reach INVOICED within ${statusPollTimeoutMs / 1000}s; the transfer may still be pending — re-check later with: agentkit-gns ... (no resume command yet, file an issue if you hit this)`,
+          );
+          process.exitCode = ExitCodes.CHAIN_OR_STATE;
+        }
       },
     );
 

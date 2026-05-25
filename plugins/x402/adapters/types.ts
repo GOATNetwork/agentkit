@@ -32,9 +32,19 @@ export interface CreatePaymentIntentResult {
 
 export interface MerchantGatewayAdapter {
   createPaymentIntent(input: CreatePaymentIntentInput, signal?: AbortSignal): Promise<CreatePaymentIntentResult>;
-  getPaymentStatus(paymentId: string, signal?: AbortSignal): Promise<{ paymentId: string; status: PaymentStatus; raw?: unknown }>;
-  submitPaymentAuthorization(paymentId: string, signature: string, signal?: AbortSignal): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }>;
-  cancelPayment(paymentId: string, signal?: AbortSignal): Promise<{ paymentId: string; status: 'cancelled' | 'failed'; raw?: unknown }>;
+  getPaymentStatus(
+    paymentId: string,
+    signal?: AbortSignal,
+  ): Promise<{ paymentId: string; status: PaymentStatus; raw?: unknown }>;
+  submitPaymentAuthorization(
+    paymentId: string,
+    signature: string,
+    signal?: AbortSignal,
+  ): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }>;
+  cancelPayment(
+    paymentId: string,
+    signal?: AbortSignal,
+  ): Promise<{ paymentId: string; status: 'cancelled' | 'failed'; raw?: unknown }>;
 }
 
 export interface TransferTokenInput {
@@ -59,4 +69,17 @@ export interface PayerWalletAdapter {
    * and `payer` are constructed from different signers.
    */
   getChainId?(): Promise<number>;
+  /**
+   * Optional: address of the signer that will broadcast `transferToken`.
+   * Issue #3 R4 (Codex P5): cross-chain actions that bind the
+   * `calldataSignRequest.message.payer` field MUST compare against the
+   * adapter that actually broadcasts the transfer — checking only
+   * `WalletProvider.getAddress()` is insufficient when `wallet` and `payer`
+   * wrap different signers. If implemented, `goat.gns.x402.payOrder`
+   * enforces a 3-way match: `wallet.getAddress()` ≡ `payer.getAddress()` ≡
+   * `message.payer`. Adapters MAY omit this; the action falls back to
+   * the wallet check alone (with reduced confidence noted in the action's
+   * trust-model docstring).
+   */
+  getAddress?(): Promise<string>;
 }
