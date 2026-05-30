@@ -27,3 +27,4 @@ export * from './erc8004/index';
 export * from './x402-merchant/index';
 export * from './giftcard/index';
 export * from './gns/index';
+export * from './thoughtproof/index';
