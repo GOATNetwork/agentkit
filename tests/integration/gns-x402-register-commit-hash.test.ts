@@ -179,7 +179,7 @@ describe('gns x402-register: commit hash binds the GOAT-side stablecoin + quoted
     api.goatPriceWei = '5000000';
 
     const wallet = new RecordingWallet();
-    const { provider, runtime, context } = buildRuntime(api, wallet);
+    const { provider, runtime, context, contracts } = buildRuntime(api, wallet);
 
     // Step 1 — resolve GOAT-side token (no API/chain call; an in-memory lookup).
     const goatToken = resolveGnsPaymentToken(networkKey, payTokenSymbol);
@@ -233,8 +233,10 @@ describe('gns x402-register: commit hash binds the GOAT-side stablecoin + quoted
     // Post-fix: paymentToken = GOAT-side USDT (NOT publicResolver, NOT
     // x402Adaptor, NOT BSC USDT).
     expect(paymentTuple[0].toLowerCase()).toBe(goatToken!.address.toLowerCase());
-    expect(paymentTuple[0].toLowerCase()).not.toBe('0xD56644B440B6d0326dc777a92FB2A0d9FdB4e59D'.toLowerCase()); // publicResolver
-    expect(paymentTuple[0].toLowerCase()).not.toBe('0xC0cEB3b632B0264b739BE115604D1911917d5471'.toLowerCase()); // x402Adaptor
+    // Derive from the live contract table so these guards never drift when the
+    // mainnet deployment moves (refreshed 2026-06-09 — see contracts.ts).
+    expect(paymentTuple[0].toLowerCase()).not.toBe(contracts.publicResolver.toLowerCase()); // publicResolver
+    expect(paymentTuple[0].toLowerCase()).not.toBe(contracts.x402Adaptor.toLowerCase()); // x402Adaptor
     expect(paymentTuple[0].toLowerCase()).not.toBe('0x55d398326f99059ff775485246999027b3197955'.toLowerCase()); // BSC USDT (source-chain token)
 
     // Post-fix: maxPaymentAmount = quoted GOAT-side totalWei (NOT 0).
