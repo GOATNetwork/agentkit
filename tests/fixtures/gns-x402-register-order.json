@@ -1,5 +1,5 @@
 {
-  "_comment": "Frozen X402OrderResponse fixture mirroring the production Permit2CallbackData shape returned by gns-api on 2026-05-23 (verified live: GNS mainnet, BSC USDT order). The Eip3009 shape was used by an older backend; production now signs Permit2CallbackData which includes message.owner = the merchant's payment-receive address. Used by tests/integration/gns-x402-flow.test.ts to assert the createOrder -> submitSignature -> payOrder -> getOrderStatus flow + the Issue #3 R3 defense-in-depth gates (owner binding, x402Config chain+token binding).",
+  "_comment": "Frozen X402OrderResponse fixture mirroring the production Permit2CallbackData shape returned by gns-api on 2026-05-23 (verified live: GNS mainnet, BSC USDT order). The Eip3009 shape was used by an older backend; production now signs Permit2CallbackData which includes message.owner = the merchant's payment-receive address. Used by tests/integration/gns-x402-flow.test.ts to assert the createOrder -> submitSignature -> payOrder -> getOrderStatus flow + the Issue #3 R3 defense-in-depth gates (owner binding, x402Config chain+token binding). domain.verifyingContract refreshed 2026-06-09 to the new mainnet x402Adaptor (the SDK payOrder gates do not bind on verifyingContract, so the frozen signature fields below remain illustrative).",
   "orderId": "register:alice.goat:0x39573c7798c3d92ec4f5e5d6a0c2f5e6b7c8d9e0:1716192000000",
   "flow": "ERC20_TRANSFER",
   "payToAddress": "0x000000000000000000000000000000000000bEEF",
@@ -16,7 +16,7 @@
       "name": "GNS X402 Adaptor",
       "version": "1",
       "chainId": 2345,
-      "verifyingContract": "0xC0cEB3b632B0264b739BE115604D1911917d5471"
+      "verifyingContract": "0x03Ae465d2ccd719416f9BC52783F268DC2f277e6"
     },
     "types": {
       "Permit2CallbackData": [

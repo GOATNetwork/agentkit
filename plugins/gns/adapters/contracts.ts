@@ -44,6 +44,10 @@ export interface GnsContractRegistry {
  * goat-ens/backend/src/modules/contracts/contracts.defaults.ts (verified
  * against the live deployment artifacts referenced in
  * references/integration.md and references/agent-usage.md).
+ *
+ * goat-mainnet addresses refreshed 2026-06-09 against the live contract
+ * listing published at https://gns.goat.network/ (full mainnet redeployment:
+ * all seven contracts moved). goat-testnet3 is unchanged.
  */
 export const gnsContracts: Record<GnsNetworkKey, GnsContractRegistry> = {
   'goat-testnet': {
@@ -58,13 +62,13 @@ export const gnsContracts: Record<GnsNetworkKey, GnsContractRegistry> = {
   },
   'goat-mainnet': {
     chainId: 2345,
-    controller: '0xdD3912A19eB9Aab0Cd88DdA107ec4fc2dA51D5e9',
-    publicResolver: '0xD56644B440B6d0326dc777a92FB2A0d9FdB4e59D',
-    ensRegistry: '0x4d652092fB4a08D186C2797e96623deaEE46aa91',
-    reverseRegistrar: '0x49275954460f2f6d3F8ba537E95Db8293C7c4058',
-    baseRegistrar: '0xB3Bd3075A9C12eFF3b23FAEF165D12B5C20966E0',
-    x402Adaptor: '0xC0cEB3b632B0264b739BE115604D1911917d5471',
-    priceBook: '0x81B36cf45Ac52F868D8948c033b9572C674ec3A4',
+    controller: '0x271AfB3d228BB3169F5d10b8F34e227EEF43a5d9',
+    publicResolver: '0xC624A087E2fEC3bcB63fdA984829Eb18E56be210',
+    ensRegistry: '0xEce959d7669a81964b86c3704335fD0332087BAe',
+    reverseRegistrar: '0xC7e6944fb92bc810C2784b6595ff8753A5364Ae4',
+    baseRegistrar: '0x8aB04C7c002C4B2c655aFec245296d8ef874933F',
+    x402Adaptor: '0x03Ae465d2ccd719416f9BC52783F268DC2f277e6',
+    priceBook: '0xa651803328a0236cEFf271e136131Ad8071365B9',
   },
 };
 
