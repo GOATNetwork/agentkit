@@ -5,4 +5,4 @@ dist-manifests/
 .docs/
 docs/
 .env
-
+.DS_Store
