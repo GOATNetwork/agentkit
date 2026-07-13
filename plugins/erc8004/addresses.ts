@@ -16,7 +16,7 @@ const addresses: Record<string, Erc8004Addresses> = {
     reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
   },
   'goat-testnet': {
-    identityRegistry: '0x556089008Fc0a60cD09390Eca93477ca254A5522',
+    identityRegistry: '0x54b8d8e2455946f2a5b8982283f2359812e815ce',
     reputationRegistry: '0xd9140951d8aE6E5F625a02F5908535e16e3af964',
   },
 };
