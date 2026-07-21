@@ -1,6 +1,6 @@
 {
   "name": "@goatnetwork/agentkit",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TypeScript SDK enabling AI Agents to autonomously execute on-chain operations on GOAT Network",
   "type": "module",
   "main": "dist/index.js",
@@ -57,6 +57,7 @@
     "clean": "rm -rf dist",
     "build": "pnpm run clean && tsc && node scripts/fix-dist-extensions.mjs",
     "pack:smoke": "pnpm run build && node scripts/smoke-test-pack.mjs",
+    "smoke:goatflow": "tsx scripts/goatflow-smoke.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
