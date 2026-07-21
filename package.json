@@ -57,6 +57,7 @@
     "clean": "rm -rf dist",
     "build": "pnpm run clean && tsc && node scripts/fix-dist-extensions.mjs",
     "pack:smoke": "pnpm run build && node scripts/smoke-test-pack.mjs",
+    "smoke:goatflow": "tsx scripts/goatflow-smoke.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

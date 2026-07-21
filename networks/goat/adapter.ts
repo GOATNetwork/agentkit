@@ -63,7 +63,14 @@ export class GoatAdapter {
   }
 
   private get x402BaseUrl(): string {
-    return process.env.GOAT_X402_BASE_URL ?? 'https://api.goatx402.com';
+    // GOAT Flow API (formerly GoatX402). Base URL only — callers append the
+    // `/api/v1/...` path. Env override applies to both networks; otherwise
+    // default per network: mainnet vs testnet3. Trailing slash(es) are
+    // stripped from the override so `${base}${path}` never yields `//api/v1`.
+    if (process.env.GOAT_X402_BASE_URL) return process.env.GOAT_X402_BASE_URL.replace(/\/+$/, '');
+    return this.network === 'goat-mainnet'
+      ? 'https://flow-api.goat.network'
+      : 'https://flow-api.testnet3.goat.network';
   }
 
   private get x402ApiKey(): string | undefined {
