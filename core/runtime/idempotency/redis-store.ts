@@ -13,24 +13,32 @@ end
 return 0
 `;
 
+// GET and SET must share one Redis operation: expiry/reacquisition between
+// a client-side ownership check and SET would still let an old run overwrite it.
+const COMPLETE_LUA = `
+local val = redis.call('GET', KEYS[1])
+if val then
+  local entry = cjson.decode(val)
+  if entry.status ~= 'in_progress' or entry.token ~= ARGV[1] then return 0 end
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return 1
+`;
+
 export class RedisIdempotencyStore implements IdempotencyStore {
   constructor(private readonly redis: Redis) {}
 
   async acquire(key: string, ttlSeconds = 3600): Promise<string | null> {
     const token = randomUUID();
     // SET NX — only set if key does not exist (atomic)
-    const result = await this.redis.set(
-      key,
-      JSON.stringify({ status: 'in_progress', token }),
-      'EX',
-      ttlSeconds,
-      'NX'
-    );
+    const result = await this.redis.set(key, JSON.stringify({ status: 'in_progress', token }), 'EX', ttlSeconds, 'NX');
     return result === 'OK' ? token : null;
   }
 
-  async complete<T = unknown>(key: string, value: T, ttlSeconds = 3600): Promise<void> {
-    await this.redis.set(key, JSON.stringify({ status: 'completed', value }), 'EX', ttlSeconds);
+  async complete<T = unknown>(key: string, value: T, ttlSeconds = 3600, token?: string): Promise<void> {
+    const entry = JSON.stringify({ status: 'completed', value });
+    if (token !== undefined) await this.redis.eval(COMPLETE_LUA, 1, key, token, entry, ttlSeconds);
+    else await this.redis.set(key, entry, 'EX', ttlSeconds);
   }
 
   async release(key: string, token: string): Promise<void> {

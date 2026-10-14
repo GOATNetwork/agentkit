@@ -1,4 +1,8 @@
-import type { ZodTypeAny } from 'zod';
+import type { ZodIssue, ZodTypeAny } from 'zod';
+
+export function formatZodIssues(issues: readonly ZodIssue[]): string[] {
+  return issues.map((i) => `${i.path.join('.') || 'root'}: ${i.message}`);
+}
 
 type JsonSchemaProperty = {
   type?: string;
@@ -116,7 +120,7 @@ function validateValue(value: unknown, schema: JsonSchemaProperty, path: string)
 export function validateWithZod(schema: ZodTypeAny, payload: unknown): string[] {
   const result = schema.safeParse(payload);
   if (result.success) return [];
-  return result.error.issues.map((i) => `${i.path.join('.') || 'root'}: ${i.message}`);
+  return formatZodIssues(result.error.issues);
 }
 
 export function validateAgainstJsonSchema(schema: JsonSchema, payload: unknown): string[] {

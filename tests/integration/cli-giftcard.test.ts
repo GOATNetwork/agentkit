@@ -1,15 +1,25 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { createCliWorkspace } from '../fixtures/cli-workspace';
 
 // See cli-gns.test.ts: tsx cold-start under full-suite load can exceed
 // vitest's default 5s test timeout. Give spawns generous headroom.
 vi.setConfig({ testTimeout: 30_000 });
 
 const exec = promisify(execFile);
-const REPO_ROOT = resolve(__dirname, '..', '..');
-const BIN = resolve(REPO_ROOT, 'bin', 'giftcard.mjs');
+let workspace: Awaited<ReturnType<typeof createCliWorkspace>>;
+let REPO_ROOT: string;
+let BIN: string;
+beforeAll(async () => {
+  workspace = await createCliWorkspace();
+  REPO_ROOT = workspace.root;
+  BIN = resolve(REPO_ROOT, 'bin', 'giftcard.mjs');
+}, 30_000);
+afterAll(async () => {
+  await workspace?.dispose();
+});
 
 interface RunResult {
   stdout: string;
@@ -19,7 +29,7 @@ interface RunResult {
 
 async function runCli(args: readonly string[], env: NodeJS.ProcessEnv = {}): Promise<RunResult> {
   try {
-    const { stdout, stderr } = await exec('node', [BIN, ...args], {
+    const { stdout, stderr } = await exec(process.execPath, [BIN, ...args], {
       cwd: REPO_ROOT,
       timeout: 25_000,
       env: { ...process.env, ...env },

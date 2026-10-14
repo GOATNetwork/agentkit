@@ -20,6 +20,7 @@ export interface PolicyConfig {
 
 const riskScore: Record<RiskLevel, number> = {
   read: 0,
+  recovery: 1,
   low: 1,
   medium: 2,
   high: 3,
@@ -43,10 +44,7 @@ export class PolicyEngine {
       return { allowed: false, reason: 'Write actions are disabled by policy' };
     }
 
-    if (
-      riskScore[action.riskLevel] > riskScore[this.config.maxRiskWithoutConfirm] &&
-      !confirmed
-    ) {
+    if (riskScore[action.riskLevel] > riskScore[this.config.maxRiskWithoutConfirm] && !confirmed) {
       return { allowed: false, reason: `Confirmation required for risk level: ${action.riskLevel}` };
     }
 

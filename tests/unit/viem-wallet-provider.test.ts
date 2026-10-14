@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockGetAddresses = vi.fn().mockResolvedValue(['0xABCD']);
 const mockSendTransaction = vi.fn().mockResolvedValue('0xtxhash');
+const mockPrepare = vi.fn(async (tx) => tx);
+const mockSign = vi.fn(async () => '0xdeadbeef');
+const mockBroadcast = vi.fn(async () => '0xtxhash');
 const mockWriteContract = vi.fn().mockResolvedValue('0xtxhash');
 const mockDeployContract = vi.fn().mockResolvedValue('0xtxhash');
 const mockSignTypedData = vi.fn().mockResolvedValue('0xsig');
@@ -9,12 +12,15 @@ const mockGetBalance = vi.fn().mockResolvedValue(BigInt(1000));
 const mockReadContract = vi.fn().mockResolvedValue(BigInt(500));
 const mockWaitForTransactionReceipt = vi
   .fn()
-  .mockResolvedValue({ contractAddress: '0xNEWCONTRACT' });
+  .mockResolvedValue({ status: 'success', contractAddress: '0xNEWCONTRACT' });
 
 vi.mock('viem', () => ({
   createWalletClient: vi.fn(() => ({
     getAddresses: mockGetAddresses,
     sendTransaction: mockSendTransaction,
+    prepareTransactionRequest: mockPrepare,
+    signTransaction: mockSign,
+    sendRawTransaction: mockBroadcast,
     writeContract: mockWriteContract,
     deployContract: mockDeployContract,
     signTypedData: mockSignTypedData,
@@ -26,6 +32,9 @@ vi.mock('viem', () => ({
     readContract: mockReadContract,
     waitForTransactionReceipt: mockWaitForTransactionReceipt,
   })),
+  encodeFunctionData: vi.fn(() => '0xabc'),
+  encodeDeployData: vi.fn(() => '0x6080abc'),
+  keccak256: vi.fn(() => '0x' + '55'.repeat(32)),
   parseAbi: vi.fn((abi: string[]) => abi),
   formatEther: vi.fn((v: bigint) => v.toString()),
 }));
@@ -47,12 +56,14 @@ describe('ViemWalletProvider', () => {
     mockDeployContract.mockResolvedValue('0xtxhash');
     mockGetBalance.mockResolvedValue(BigInt(1000));
     mockReadContract.mockResolvedValue(BigInt(500));
-    mockWaitForTransactionReceipt.mockResolvedValue({ contractAddress: '0xNEWCONTRACT' });
+    mockWaitForTransactionReceipt.mockResolvedValue({ status: 'success', contractAddress: '0xNEWCONTRACT' });
     provider = new ViemWalletProvider(mockAccount, mockChain, mockTransport, 'goat-testnet');
   });
 
-  it('getAddress returns first wallet address', async () => {
+  it('getAddress uses the bound account without an RPC request', async () => {
+    mockGetAddresses.mockRejectedValueOnce(new Error('eth_accounts unavailable'));
     expect(await provider.getAddress()).toBe('0xABCD');
+    expect(mockGetAddresses).not.toHaveBeenCalled();
   });
 
   it('getNetwork returns configured network name', async () => {
@@ -72,20 +83,21 @@ describe('ViemWalletProvider', () => {
   it('transferNative sends transaction and waits for receipt', async () => {
     const result = await provider.transferNative('0xTO', '1000');
     expect(result).toEqual({ txHash: '0xtxhash' });
-    expect(mockSendTransaction).toHaveBeenCalled();
-    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash' });
+    expect(mockBroadcast).toHaveBeenCalled();
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith(expect.objectContaining({ hash: '0xtxhash' }));
   });
 
-  it('transferErc20 calls writeContract on token', async () => {
+  it('transferErc20 prepares a token transfer and broadcasts signed bytes', async () => {
     const result = await provider.transferErc20('0xTOKEN', '0xTO', '100');
     expect(result).toEqual({ txHash: '0xtxhash' });
-    expect(mockWriteContract).toHaveBeenCalled();
+    expect(mockPrepare).toHaveBeenCalledWith(expect.objectContaining({ to: '0xTOKEN', data: '0xabc' }));
+    expect(mockBroadcast).toHaveBeenCalledWith({ serializedTransaction: '0xdeadbeef' });
   });
 
-  it('approveErc20 calls writeContract with approve', async () => {
+  it('approveErc20 broadcasts signed approval bytes', async () => {
     const result = await provider.approveErc20('0xTOKEN', '0xSPENDER', '100');
     expect(result).toEqual({ txHash: '0xtxhash' });
-    expect(mockWriteContract).toHaveBeenCalled();
+    expect(mockBroadcast).toHaveBeenCalled();
   });
 
   it('signTypedData delegates to walletClient', async () => {
@@ -105,39 +117,77 @@ describe('ViemWalletProvider', () => {
   });
 
   it('writeContract sends tx and waits for receipt', async () => {
-    const result = await provider.writeContract(
-      '0xCONTRACT',
-      ['function bar(uint256)'],
-      'bar',
-      [42],
-    );
+    const result = await provider.writeContract('0xCONTRACT', ['function bar(uint256)'], 'bar', [42]);
     expect(result).toEqual({ txHash: '0xtxhash' });
-    expect(mockWriteContract).toHaveBeenCalled();
+    expect(mockBroadcast).toHaveBeenCalled();
     expect(mockWaitForTransactionReceipt).toHaveBeenCalled();
   });
 
   it('writeContract passes value for payable calls', async () => {
     await provider.writeContract('0xCONTRACT', ['function bar() payable'], 'bar', [], '1000');
-    expect(mockWriteContract).toHaveBeenCalledWith(
-      expect.objectContaining({ value: BigInt(1000) }),
-    );
+    expect(mockPrepare).toHaveBeenCalledWith(expect.objectContaining({ value: BigInt(1000) }));
   });
 
   it('deployContract sends deploy tx and returns address from receipt', async () => {
-    const result = await provider.deployContract(
-      ['constructor(uint256)'],
-      '0x6080',
-      [42],
-    );
+    const result = await provider.deployContract(['constructor(uint256)'], '0x6080', [42]);
     expect(result).toEqual({ txHash: '0xtxhash', contractAddress: '0xNEWCONTRACT' });
-    expect(mockDeployContract).toHaveBeenCalled();
-    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash' });
+    expect(mockBroadcast).toHaveBeenCalled();
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith(expect.objectContaining({ hash: '0xtxhash' }));
   });
 
   it('deployContract passes value for payable constructors', async () => {
     await provider.deployContract(['constructor() payable'], '0x6080', [], '5000');
-    expect(mockDeployContract).toHaveBeenCalledWith(
-      expect.objectContaining({ value: BigInt(5000) }),
-    );
+    expect(mockPrepare).toHaveBeenCalledWith(expect.objectContaining({ value: BigInt(5000) }));
   });
+
+  it.each(['native', 'erc20', 'approve', 'write', 'deploy'] as const)(
+    'rejects a reverted %s receipt with recovery evidence',
+    async (kind) => {
+      mockWaitForTransactionReceipt.mockResolvedValueOnce({ status: 'reverted', transactionHash: '0xtxhash' });
+      const pending =
+        kind === 'native'
+          ? provider.transferNative('0xTO', '1')
+          : kind === 'erc20'
+            ? provider.transferErc20('0xTOKEN', '0xTO', '1')
+            : kind === 'approve'
+              ? provider.approveErc20('0xTOKEN', '0xSPENDER', '1')
+              : kind === 'write'
+                ? provider.writeContract('0xCONTRACT', [], 'pay', [])
+                : provider.deployContract([], '0x6080');
+      await expect(pending).rejects.toMatchObject({
+        code: 'WALLET_TRANSFER_FAILED',
+        recovery: { phase: 'broadcast', txHash: '0xtxhash' },
+      });
+    },
+  );
+
+  it('marks raw-send recovery instructions so payment wrappers preserve them', async () => {
+    mockBroadcast.mockRejectedValueOnce(new Error('lost response'));
+    await expect(provider.broadcastErc20('0xTOKEN', '0xTO', '1')).rejects.toMatchObject({
+      code: 'ADAPTER_REQUEST_FAILED',
+      message: 'Transaction submission incomplete; inspect the signed transaction hash before retrying',
+      recoveryGuidance: true,
+      recovery: { phase: 'submitting', signedTxHash: `0x${'55'.repeat(32)}` },
+    });
+  });
+
+  it.each(['repriced', 'cancelled', 'replaced'] as const)(
+    'checks a %s replacement and retains its actual hash',
+    async (reason) => {
+      const onBroadcast = vi.fn();
+      mockWaitForTransactionReceipt.mockImplementationOnce(async ({ onReplaced }) => {
+        onReplaced({ reason });
+        return { status: 'success', transactionHash: '0xreplacement' };
+      });
+      const pending = provider.transferNative('0xTO', '1', { onBroadcast });
+      if (reason === 'repriced') await expect(pending).resolves.toEqual({ txHash: '0xreplacement' });
+      else
+        await expect(pending).rejects.toMatchObject({
+          code: 'WALLET_TRANSFER_FAILED',
+          recoveryGuidance: true,
+          recovery: { txHash: '0xreplacement' },
+        });
+      expect(onBroadcast.mock.calls.map(([hash]) => hash)).toEqual(['0xtxhash', '0xreplacement']);
+    },
+  );
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ExecutionRuntime } from '../../core/runtime/execution-runtime';
 import { PolicyEngine } from '../../core/policy/policy-engine';
 import { InMemoryRuntimeMetrics } from '../../core/metrics/metrics';
@@ -47,11 +47,63 @@ describe('ExecutionRuntime', () => {
     });
   });
 
+  it('parses non-idempotent input transforms exactly once', async () => {
+    const transform = vi.fn((value: number) => value + 1);
+    const execute = vi.fn(async (_ctx, input) => input);
+    const result = await runtime.run(
+      makeAction({ zodInputSchema: z.object({ value: z.number().transform(transform) }), execute }),
+      ctx,
+      { value: 1 },
+    );
+    expect(result).toMatchObject({ ok: true, output: { value: 2 } });
+    expect(transform).toHaveBeenCalledTimes(1);
+  });
+
   it('succeeds on valid input', async () => {
     const result = await runtime.run(makeAction(), ctx, { value: 'hello' });
     expect(result.ok).toBe(true);
     expect(result.output).toEqual({ echo: 'hello' });
     expect(result.attempts).toBe(1);
+  });
+
+  it.each([-1, 1.5, NaN, Infinity, 2 ** 31, Number.MAX_SAFE_INTEGER])(
+    'rejects unsupported timeout %s before executing or acquiring a key',
+    async (timeoutMs) => {
+      const execute = vi.fn();
+      const acquire = vi.spyOn(store, 'acquire');
+      expect(
+        await runtime.run(makeAction({ execute }), ctx, { value: 'x' }, { timeoutMs, idempotencyKey: 'timeout' }),
+      ).toMatchObject({ ok: false, errorCode: 'INVALID_INPUT', attempts: 0 });
+      expect(execute).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, 5])('allows zero to disable a timeout with defaultTimeoutMs %i', async (defaultTimeoutMs) => {
+    const runtime = new ExecutionRuntime(makePolicy(), { defaultTimeoutMs, logger: silentLogger });
+    const action = makeAction({
+      execute: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { done: true };
+      },
+    });
+    expect(await runtime.run(action, ctx, { value: 'x' }, defaultTimeoutMs ? { timeoutMs: 0 } : {})).toMatchObject({
+      ok: true,
+      output: { done: true },
+      attempts: 1,
+    });
+  });
+
+  it('validates default timeouts and accepts the maximum timer delay', async () => {
+    const invalid = new ExecutionRuntime(makePolicy(), { defaultTimeoutMs: 2 ** 31 });
+    expect(await invalid.run(makeAction(), ctx, { value: 'x' })).toMatchObject({
+      errorCode: 'INVALID_INPUT',
+      attempts: 0,
+    });
+    expect(await runtime.run(makeAction(), ctx, { value: 'x' }, { timeoutMs: 2 ** 31 - 1 })).toMatchObject({
+      ok: true,
+      output: { echo: 'x' },
+    });
   });
 
   it('returns INVALID_INPUT on schema failure', async () => {

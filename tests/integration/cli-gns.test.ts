@@ -1,17 +1,27 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { createCliWorkspace } from '../fixtures/cli-workspace';
 
-// Each test spawns `node bin/gns.mjs`, which cold-starts the tsx ESM loader.
+// Each test spawns the real shim in a source-only workspace, exercising tsx even when the checkout has dist.
 // Under full-suite parallelism that can exceed vitest's default 5s test
 // timeout, producing empty stdout (observed in CI). Give spawns generous
 // headroom; the commands themselves return in well under a second.
 vi.setConfig({ testTimeout: 30_000 });
 
 const exec = promisify(execFile);
-const REPO_ROOT = resolve(__dirname, '..', '..');
-const BIN = resolve(REPO_ROOT, 'bin', 'gns.mjs');
+let workspace: Awaited<ReturnType<typeof createCliWorkspace>>;
+let REPO_ROOT: string;
+let BIN: string;
+beforeAll(async () => {
+  workspace = await createCliWorkspace();
+  REPO_ROOT = workspace.root;
+  BIN = resolve(REPO_ROOT, 'bin', 'gns.mjs');
+}, 30_000);
+afterAll(async () => {
+  await workspace?.dispose();
+});
 
 interface RunResult {
   stdout: string;
@@ -21,7 +31,7 @@ interface RunResult {
 
 async function runCli(args: readonly string[], env: NodeJS.ProcessEnv = {}): Promise<RunResult> {
   try {
-    const { stdout, stderr } = await exec('node', [BIN, ...args], {
+    const { stdout, stderr } = await exec(process.execPath, [BIN, ...args], {
       cwd: REPO_ROOT,
       timeout: 25_000,
       env: { ...process.env, ...env },
@@ -59,10 +69,9 @@ describe('agentkit-gns CLI', () => {
     // Point at an unroutable port so we deterministically get ADAPTER_REQUEST_FAILED.
     // 127.0.0.1:0 is used here as a TEST harness target ONLY — the SDK never
     // configures localhost as a default API URL.
-    const { stdout, code } = await runCli(
-      ['lookup', 'alice.goat', '--json'],
-      { GNS_API_BASE_URL: 'http://127.0.0.1:1' },
-    );
+    const { stdout, code } = await runCli(['lookup', 'alice.goat', '--json'], {
+      GNS_API_BASE_URL: 'http://127.0.0.1:1',
+    });
     // Either 10 (adapter failure) or 0 (if some network reaches a real host
     // in CI) is acceptable; in the test harness 1 is unreachable so we expect 10.
     expect([0, 10]).toContain(code);
@@ -72,10 +81,7 @@ describe('agentkit-gns CLI', () => {
   });
 
   it('doctor --json produces a structured report', async () => {
-    const { stdout, code } = await runCli(
-      ['doctor', '--json'],
-      { GNS_API_BASE_URL: 'http://127.0.0.1:1' },
-    );
+    const { stdout, code } = await runCli(['doctor', '--json'], { GNS_API_BASE_URL: 'http://127.0.0.1:1' });
     // doctor may exit 0 or 1 depending on connectivity; either is acceptable.
     expect([0, 1]).toContain(code);
     const parsed = JSON.parse(stdout);

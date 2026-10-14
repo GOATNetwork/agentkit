@@ -1,6 +1,14 @@
 import type { ZodTypeAny } from 'zod';
 
-export type RiskLevel = 'read' | 'low' | 'medium' | 'high';
+export type RiskLevel = 'read' | 'recovery' | 'low' | 'medium' | 'high';
+
+/** JSON-serializable recovery handle returned to the caller, never to hooks/logs. */
+export interface ActionRecovery {
+  kind: string;
+  operationId: string;
+  phase: string;
+  [key: string]: unknown;
+}
 
 export interface ActionContext {
   traceId: string;
@@ -17,6 +25,12 @@ export interface ActionContext {
    * to this value to enforce a single-source-of-truth contract.
    */
   idempotencyKey?: string;
+  /**
+   * Observe detached recovery snapshots before/after a side effect. Runtime and
+   * built-in actions isolate synchronous throws and async rejections and do not
+   * await observers. Use the payment recovery store for durable persistence.
+   */
+  checkpointRecovery?: (recovery: ActionRecovery) => void;
 }
 
 export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
@@ -24,6 +38,10 @@ export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
   description: string;
   riskLevel: RiskLevel;
   requiresConfirmation: boolean;
+  /** Set false for operations whose ambiguous result must be reconciled rather than replayed. */
+  retryable?: boolean;
+  /** Actions with an atomic durable journal must validate every call themselves, including cached intents. */
+  idempotencyMode?: 'runtime' | 'action';
   networks: string[];
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
@@ -49,5 +67,6 @@ export interface ActionDefinition<TInput = unknown, TOutput = unknown> {
    * than nesting them, otherwise redaction will not reach them.
    */
   sensitiveInputFields?: string[];
+  /** Low-level callback receiving parsed input. Invoke actions through ExecutionRuntime for validation and policy. */
   execute: (ctx: ActionContext, input: TInput) => Promise<TOutput>;
 }

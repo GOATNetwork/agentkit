@@ -1,5 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import Redis from 'ioredis';
+import { ExecutionRuntime } from '../../core/runtime/execution-runtime';
+import { PolicyEngine } from '../../core/policy/policy-engine';
+import { AgentkitRuntimeError } from '../../core/errors/error';
+import { ErrorCodes } from '../../core/errors/error-codes';
 import { RedisIdempotencyStore } from '../../core/runtime/idempotency/redis-store';
 
 const REDIS_URL = process.env.AGENTKIT_REDIS_URL ?? 'redis://127.0.0.1:6379';
@@ -28,9 +32,8 @@ try {
 
 if (REQUIRE_REDIS && !canConnect) {
   throw new Error(
-    `Redis is required for this test run but is not reachable at ${REDIS_URL}. ` +
-      `Start Redis locally and retry.`,
-    { cause: connectError as Error | undefined }
+    `Redis is required for this test run but is not reachable at ${REDIS_URL}. ` + `Start Redis locally and retry.`,
+    { cause: connectError as Error | undefined },
   );
 }
 
@@ -52,6 +55,45 @@ describe.skipIf(!canConnect)('RedisIdempotencyStore', () => {
   function s() {
     return store!;
   }
+
+  it('retains a runtime key with recovery evidence across runtime instances', async () => {
+    let executions = 0;
+    const action = {
+      name: key('recovery-action'),
+      description: 'test',
+      riskLevel: 'read' as const,
+      requiresConfirmation: false,
+      networks: [],
+      execute: async () => {
+        executions++;
+        const error = new AgentkitRuntimeError(ErrorCodes.ABORTED, 'Confirmation cancelled');
+        error.recovery = {
+          kind: 'transaction',
+          operationId: 'payment',
+          phase: 'broadcast',
+          txHash: `0x${'44'.repeat(32)}`,
+        };
+        throw error;
+      },
+    };
+    const runtime = () =>
+      new ExecutionRuntime(
+        new PolicyEngine({ allowedNetworks: ['test'], maxRiskWithoutConfirm: 'read', writeEnabled: false }),
+        {
+          idempotencyStore: s(),
+          idempotencyTtlSeconds: 60,
+          logger: { log: () => {} },
+        },
+      );
+    const context = { traceId: 'recovery', network: 'test', now: Date.now() };
+    const first = await runtime().run(action, context, {}, { idempotencyKey: 'payment' });
+    await first.settled;
+    expect(await runtime().run(action, context, {}, { idempotencyKey: 'payment' })).toMatchObject({
+      errorCode: 'IDEMPOTENCY_CONFLICT',
+    });
+    expect(executions).toBe(1);
+    expect(await redis!.ttl(`${action.name}:payment`)).toBeGreaterThan(0);
+  });
 
   it('acquire returns token, second acquire returns null', async () => {
     const k = key('acquire-basic');
@@ -75,6 +117,32 @@ describe.skipIf(!canConnect)('RedisIdempotencyStore', () => {
     await s().complete(k, { data: 42 }, 60);
     const hit = await s().get(k);
     expect(hit).toEqual({ found: true, value: { data: 42 } });
+  });
+
+  it('caches a late success after expiry when nobody reacquired the key', async () => {
+    const k = key('unowned-completion');
+    const token = await s().acquire(k, 60);
+    await redis!.pexpire(k, 1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await s().get(k)).toBeNull();
+    await s().complete(k, 'late success', 60, token!);
+    expect(await s().get(k)).toEqual({ found: true, value: 'late success' });
+    expect(await s().acquire(k, 60)).toBeNull();
+  });
+
+  it('fences completion after expiry and reacquisition, including an already completed new owner', async () => {
+    const k = key('fenced-completion');
+    const old = await s().acquire(k, 60);
+    await redis!.pexpire(k, 1);
+    await new Promise((r) => setTimeout(r, 10));
+    const current = await s().acquire(k, 60);
+    expect(current).toBeTypeOf('string');
+    expect(current).not.toBe(old);
+    await s().complete(k, 'stale', 60, old!);
+    expect(await s().get(k)).toBeNull();
+    await s().complete(k, 'current', 60, current!);
+    await s().complete(k, 'stale again', 60, old!);
+    expect(await s().get(k)).toEqual({ found: true, value: 'current' });
   });
 
   it('get returns null after TTL expires', async () => {
@@ -163,11 +231,7 @@ describe.skipIf(!canConnect)('RedisIdempotencyStore', () => {
 
   it('concurrent acquire — only one wins', async () => {
     const k = key('concurrent-acquire');
-    const results = await Promise.all([
-      s().acquire(k, 60),
-      s().acquire(k, 60),
-      s().acquire(k, 60),
-    ]);
+    const results = await Promise.all([s().acquire(k, 60), s().acquire(k, 60), s().acquire(k, 60)]);
 
     const winners = results.filter((r) => r !== null);
     expect(winners).toHaveLength(1);

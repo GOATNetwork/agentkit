@@ -1,3 +1,4 @@
+import { transferCheckpoints } from '../../../core/wallet/checkpoints';
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
@@ -25,10 +26,11 @@ export function approveErc20Action(wallet: WalletProvider): ActionDefinition<App
     description: 'Approve ERC20 token spending allowance for a spender address',
     riskLevel: 'high',
     requiresConfirmation: true,
+    retryable: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
-      return wallet.approveErc20(input.tokenAddress, input.spender, input.amount, { signal: ctx.signal });
+      return wallet.approveErc20(input.tokenAddress, input.spender, input.amount, transferCheckpoints(ctx));
     },
   };
 }

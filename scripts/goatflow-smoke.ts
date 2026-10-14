@@ -22,24 +22,22 @@
  * Usage:
  *   GOAT_X402_API_KEY=... GOAT_X402_API_SECRET=... \
  *   [GOAT_NETWORK=goat-testnet] [GOAT_X402_BASE_URL=...(override; defaults per network)] \
- *   [GOATFLOW_SMOKE_ASSET=USDT] [GOATFLOW_SMOKE_AMOUNT=1000000] [GOATFLOW_SMOKE_TO=0x...] \
+ *   [GOATFLOW_SMOKE_ASSET=USDT] [GOATFLOW_SMOKE_AMOUNT=1000000] GOATFLOW_SMOKE_PAYER=0x... \
  *   npx tsx scripts/goatflow-smoke.ts
  */
 import { GoatAdapter } from '../networks/goat/adapter';
+import { evmAddressPattern } from '../core/schema/validators';
 
 type Net = 'goat-mainnet' | 'goat-testnet';
 
-const network: Net =
-  (process.env.GOAT_NETWORK as Net | undefined) ?? 'goat-testnet';
+const network: Net = (process.env.GOAT_NETWORK as Net | undefined) ?? 'goat-testnet';
 const apiKey = process.env.GOAT_X402_API_KEY;
 const apiSecret = process.env.GOAT_X402_API_SECRET;
 
 // Order params (override via env to match your merchant config).
 const asset = process.env.GOATFLOW_SMOKE_ASSET ?? 'USDT';
 const amount = process.env.GOATFLOW_SMOKE_AMOUNT ?? '1000000';
-const to =
-  process.env.GOATFLOW_SMOKE_TO ??
-  '0x000000000000000000000000000000000000dEaD';
+const payer = process.env.GOATFLOW_SMOKE_PAYER?.trim();
 
 function fail(msg: string): never {
   console.error(`\n[FAIL] ${msg}`);
@@ -62,6 +60,9 @@ if (!apiKey || !apiSecret) {
   );
   process.exit(2);
 }
+
+if (!payer || !evmAddressPattern.test(payer))
+  fail('Set GOATFLOW_SMOKE_PAYER to the paying wallet address; no request was sent.');
 
 interface Captured {
   url: string;
@@ -102,12 +103,17 @@ async function main(): Promise<void> {
   const adapter = new GoatAdapter(network);
   console.log('-- GOAT Flow smoke --');
   console.log(`network : ${network}`);
-  console.log(`asset   : ${asset}   amount_wei: ${amount}   to: ${to}`);
+  console.log(`asset   : ${asset}   amount_wei: ${amount}   payer: ${payer}`);
   console.log('Calling x402CreatePayment (POST /api/v1/orders)...\n');
 
   let adapterError: unknown;
   try {
-    const res = await adapter.x402CreatePayment({ to, asset, amount });
+    const res = await adapter.x402CreatePayment({
+      fromAddress: payer!,
+      asset,
+      amount,
+      idempotencyKey: process.env.GOATFLOW_SMOKE_IDEMPOTENCY_KEY ?? `smoke:${Date.now()}`,
+    });
     console.log('adapter returned:', JSON.stringify(res, null, 2));
   } catch (e) {
     adapterError = e;
@@ -130,13 +136,9 @@ async function main(): Promise<void> {
 
   // 2) URL / base selection
   const expectHost =
-    network === 'goat-mainnet'
-      ? 'https://flow-api.goat.network'
-      : 'https://flow-api.testnet3.goat.network';
+    network === 'goat-mainnet' ? 'https://flow-api.goat.network' : 'https://flow-api.testnet3.goat.network';
   const baseOverride = process.env.GOAT_X402_BASE_URL;
-  const urlOk = baseOverride
-    ? c.url.startsWith(baseOverride.replace(/\/+$/, ''))
-    : c.url.startsWith(expectHost);
+  const urlOk = baseOverride ? c.url.startsWith(baseOverride.replace(/\/+$/, '')) : c.url.startsWith(expectHost);
   console.log(`Request URL : ${c.url}`);
   console.log(
     `Domain/path : ${urlOk && c.url.includes('/api/v1/orders') ? 'OK' : 'FAIL'} ` +
@@ -154,9 +156,7 @@ async function main(): Promise<void> {
   // 4) Status interpretation
   console.log(`HTTP status : ${c.status}`);
   if (c.bodyText) {
-    console.log(
-      `Body        : ${c.bodyText.slice(0, 400)}${c.bodyText.length > 400 ? '...' : ''}`,
-    );
+    console.log(`Body        : ${c.bodyText.slice(0, 400)}${c.bodyText.length > 400 ? '...' : ''}`);
   }
   console.log('');
 
@@ -176,7 +176,7 @@ async function main(): Promise<void> {
       `[WARN] reached & authenticated (${c.status}); only the order params / ` +
         `merchant config are off.` +
         `\n   For the "domain switch + signing" change: PASS.` +
-        `\n   To place a full order, re-run with GOATFLOW_SMOKE_ASSET / _AMOUNT / _TO ` +
+        `\n   To place a full order, re-run with GOATFLOW_SMOKE_ASSET / _AMOUNT / _PAYER ` +
         `matching your merchant.`,
     );
   } else {
@@ -188,4 +188,4 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => fail(e instanceof Error ? e.stack ?? e.message : String(e)));
+main().catch((e) => fail(e instanceof Error ? (e.stack ?? e.message) : String(e)));

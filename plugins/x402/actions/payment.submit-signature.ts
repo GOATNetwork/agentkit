@@ -40,6 +40,7 @@ export function submitSignatureAction(
     description: 'Submit payer signature to merchant gateway (supports EIP-712 signing)',
     riskLevel: 'high',
     requiresConfirmation: true,
+    retryable: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input) {

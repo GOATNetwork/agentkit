@@ -35,6 +35,18 @@ function mockWallet(overrides: Partial<WalletProvider> = {}): WalletProvider {
 const ctx = { traceId: 't1', network: 'goat-mainnet', now: Date.now() };
 const testnetCtx = { traceId: 't2', network: 'goat-testnet', now: Date.now() };
 
+describe('ERC-8004 registry address pairs', () => {
+  it('pins the paired GOAT Testnet3 registries', () => {
+    expect(getIdentityRegistryAddress('goat-testnet')).toBe('0x54B8d8E2455946f2A5B8982283f2359812e815ce');
+    expect(getReputationRegistryAddress('goat-testnet')).toBe('0xd9140951d8aE6E5F625a02F5908535e16e3af964');
+  });
+
+  it('preserves the GOAT mainnet registries', () => {
+    expect(getIdentityRegistryAddress('goat-mainnet')).toBe('0x8004A169FB4a3325136EB29fA0ceB6D2e539a432');
+    expect(getReputationRegistryAddress('goat-mainnet')).toBe('0x8004BAa17C55a88189AE136b182e5fdA19dE9b63');
+  });
+});
+
 describe('erc8004.register_agent', () => {
   it('has correct metadata', () => {
     const wallet = mockWallet();
@@ -50,7 +62,7 @@ describe('erc8004.register_agent', () => {
     const result = await action.execute(ctx, { agentURI: 'https://example.com/agent.json' });
     expect(result).toEqual({ txHash: '0xtx_8004' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      getIdentityRegistryAddress('goat-mainnet'),
+      '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
       ['function register(string agentURI) returns (uint256 agentId)'],
       'register',
       ['https://example.com/agent.json'],
@@ -66,7 +78,7 @@ describe('erc8004.register_agent', () => {
     await action.execute(testnetCtx, { agentURI: 'https://example.com/agent.json' });
 
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      getIdentityRegistryAddress('goat-testnet'),
+      '0x54B8d8E2455946f2A5B8982283f2359812e815ce',
       ['function register(string agentURI) returns (uint256 agentId)'],
       'register',
       ['https://example.com/agent.json'],
@@ -80,7 +92,10 @@ describe('erc8004.register_agent', () => {
     const action = erc8004RegisterAgentAction(wallet);
 
     await expect(
-      action.execute({ traceId: 't3', network: 'unsupported-network', now: Date.now() }, { agentURI: 'https://example.com/agent.json' }),
+      action.execute(
+        { traceId: 't3', network: 'unsupported-network', now: Date.now() },
+        { agentURI: 'https://example.com/agent.json' },
+      ),
     ).rejects.toThrow('ERC-8004 Identity Registry is not available on network "unsupported-network"');
   });
 });
@@ -175,7 +190,7 @@ describe('erc8004.give_feedback', () => {
     });
     expect(result).toEqual({ txHash: '0xtx_8004' });
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      getReputationRegistryAddress('goat-mainnet'),
+      '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
       expect.any(Array),
       'giveFeedback',
       [BigInt(1), 87, 0, 'quality', '', 'https://agent.example.com', 'ipfs://feedback', hash],
@@ -184,13 +199,13 @@ describe('erc8004.give_feedback', () => {
     );
   });
 
-  it('uses the testnet reputation registry when ctx.network is goat-testnet', async () => {
+  it.each(['1', '0'])('uses the testnet reputation registry with agentId "%s"', async (agentId) => {
     const wallet = mockWallet();
     const action = erc8004GiveFeedbackAction(wallet);
     const hash = '0x' + 'cd'.repeat(32);
 
-    await action.execute(testnetCtx, {
-      agentId: '1',
+    const input = action.zodInputSchema!.parse({
+      agentId,
       value: 87,
       valueDecimals: 0,
       tag1: 'quality',
@@ -199,12 +214,13 @@ describe('erc8004.give_feedback', () => {
       feedbackURI: 'ipfs://feedback',
       feedbackHash: hash,
     });
+    await action.execute(testnetCtx, input);
 
     expect(wallet.writeContract).toHaveBeenCalledWith(
-      getReputationRegistryAddress('goat-testnet'),
+      '0xd9140951d8aE6E5F625a02F5908535e16e3af964',
       expect.any(Array),
       'giveFeedback',
-      [BigInt(1), 87, 0, 'quality', '', 'https://agent.example.com', 'ipfs://feedback', hash],
+      [BigInt(agentId), 87, 0, 'quality', '', 'https://agent.example.com', 'ipfs://feedback', hash],
       undefined,
       { signal: undefined },
     );
@@ -252,6 +268,30 @@ describe('erc8004.revoke_feedback', () => {
 });
 
 describe('erc8004.get_reputation', () => {
+  it('accepts agentId "0" when querying the Testnet reputation registry', async () => {
+    const wallet = mockWallet({ callContract: vi.fn().mockResolvedValue([1n, 87n, 0]) });
+    const action = erc8004GetReputationAction(wallet);
+    const input = action.zodInputSchema!.parse({
+      agentId: '0',
+      clientAddresses: ['0x1111111111111111111111111111111111111111'],
+      tag1: 'quality',
+      tag2: '',
+    });
+
+    expect(await action.execute(testnetCtx, input)).toEqual({
+      agentId: '0',
+      count: '1',
+      summaryValue: '87',
+      summaryValueDecimals: 0,
+    });
+    expect(wallet.callContract).toHaveBeenCalledWith(
+      '0xd9140951d8aE6E5F625a02F5908535e16e3af964',
+      expect.any(Array),
+      'getSummary',
+      [0n, input.clientAddresses, 'quality', ''],
+    );
+  });
+
   it('calls callContract with getSummary and parses result', async () => {
     const mockResult = [BigInt(10), BigInt(850), 1];
     const wallet = mockWallet({ callContract: vi.fn().mockResolvedValue(mockResult) });

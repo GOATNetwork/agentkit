@@ -23,6 +23,7 @@ export function cancelPaymentAction(
     description: 'Cancel x402 payment via merchant gateway API',
     riskLevel: 'medium',
     requiresConfirmation: true,
+    retryable: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input) {

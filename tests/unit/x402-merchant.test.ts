@@ -140,7 +140,7 @@ describe('merchant.auth.login', () => {
   it('declares sensitiveOutputFields for token redaction', () => {
     const client = mockClient();
     const action = merchantAuthLoginAction(client);
-    expect(action.sensitiveOutputFields).toEqual(['access_token', 'refresh_token']);
+    expect(action.sensitiveOutputFields).toEqual(['access_token', 'refresh_token', 'mfa_token']);
   });
 });
 
@@ -503,11 +503,11 @@ describe('HttpMerchantPortalClient', () => {
 // ── Action count ──────────────────────────────────────────────────
 
 describe('x402-merchant plugin exports', () => {
-  it('exports 30 action factory functions', async () => {
+  it('exports 31 action factory functions', async () => {
     const exports = await import('../../plugins/x402-merchant/index');
     const actionFactories = Object.entries(exports).filter(
       ([name, value]) => name.startsWith('merchant') && typeof value === 'function',
     );
-    expect(actionFactories).toHaveLength(30);
+    expect(actionFactories).toHaveLength(31);
   });
 });

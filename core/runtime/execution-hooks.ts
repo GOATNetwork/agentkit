@@ -7,6 +7,8 @@ export interface ActionStartEvent {
 }
 
 export interface ActionSuccessEvent {
+  /** The caller already received ABORTED/TIMEOUT; this reports the eventual successful execution. */
+  afterInterruption?: boolean;
   traceId: string;
   action: string;
   attempt: number;

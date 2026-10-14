@@ -1,4 +1,4 @@
-export type { ActionDefinition, ActionContext, RiskLevel } from './schema/action';
+export type { ActionDefinition, ActionContext, ActionRecovery, RiskLevel } from './schema/action';
 export { AgentkitRuntimeError, normalizeError } from './errors/error';
 export { ErrorCodes } from './errors/error-codes';
 export type { ErrorCode, AgentkitError } from './errors/error-codes';

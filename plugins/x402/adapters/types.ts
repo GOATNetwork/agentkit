@@ -1,3 +1,6 @@
+import type { ActionContext } from '../../../core/schema/action';
+import type { WalletCallOptions } from '../../../core/wallet/wallet-provider';
+
 export type PaymentStatus = 'created' | 'authorized' | 'settled' | 'failed' | 'expired';
 
 export interface Eip712TypeField {
@@ -16,6 +19,8 @@ export interface CreatePaymentIntentInput {
   to: string;
   asset: string;
   amount: string;
+  chainId?: number;
+  tokenContract?: string;
   fromAddress?: string;
   idempotencyKey?: string;
   callbackCalldata?: string;
@@ -26,12 +31,21 @@ export interface CreatePaymentIntentResult {
   status: 'created';
   payToAddress?: string;
   tokenAddress?: string;
+  chainId?: number;
+  amountWei?: string;
+  expiresAt?: number;
   calldataSignRequest?: CalldataSignRequest;
   raw?: unknown;
 }
 
 export interface MerchantGatewayAdapter {
-  createPaymentIntent(input: CreatePaymentIntentInput, signal?: AbortSignal): Promise<CreatePaymentIntentResult>;
+  /** The adapter atomically journals creation and compares intent terms on every call. */
+  managesIdempotency?: boolean;
+  createPaymentIntent(
+    input: CreatePaymentIntentInput,
+    signal?: AbortSignal,
+    context?: ActionContext,
+  ): Promise<CreatePaymentIntentResult>;
   getPaymentStatus(
     paymentId: string,
     signal?: AbortSignal,
@@ -60,7 +74,12 @@ export interface TransferTokenResult {
 export interface PayerWalletAdapter {
   normalizeAuthorization(input: string): Promise<string>;
   signCalldataTypedData(request: CalldataSignRequest): Promise<string>;
-  transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult>;
+  /** Prefer options.signal for new calls; a supplied legacy positional signal takes precedence. */
+  transferToken(
+    input: TransferTokenInput,
+    signal?: AbortSignal,
+    options?: WalletCallOptions,
+  ): Promise<TransferTokenResult>;
   /**
    * Optional: chainId of the signer that will broadcast `transferToken`.
    * Cross-chain actions (e.g. `goat.gns.x402.payOrder`) MUST validate the

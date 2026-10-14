@@ -9,6 +9,8 @@
  * Keep this shape stable; tightening it will require regenerating the
  * manifest stubs and updating consumers in PR #5.
  */
+import type { RiskLevel } from '../../../core/schema/action';
+
 export interface CommandFlag {
   /** The `--name <value>` or `--bool` flag spec passed to commander. */
   flag: string;
@@ -39,7 +41,7 @@ export interface SubcommandMetadata {
    *  ActionDefinition wiring without running the CLI. */
   actions: string[];
   /** Risk classification for documentation. */
-  risk: 'read' | 'low' | 'medium' | 'high';
+  risk: RiskLevel;
 }
 
 export interface CliMetadata {

@@ -35,6 +35,26 @@ describe('InMemoryIdempotencyStore', () => {
     expect(hit).toEqual({ found: true, value: { data: 42 } });
   });
 
+  it.each([false, true])('caches an expired owner with no successor (entry deleted: %s)', async (readExpired) => {
+    const token = await store.acquire('expired', 1);
+    vi.advanceTimersByTime(1001);
+    if (readExpired) expect(await store.get('expired')).toBeNull();
+    await store.complete('expired', 'late success', 60, token!);
+    expect(await store.get('expired')).toEqual({ found: true, value: 'late success' });
+    expect(await store.acquire('expired', 60)).toBeNull();
+  });
+
+  it('does not replace a new owner on late completion', async () => {
+    const old = await store.acquire('fenced', 1);
+    vi.advanceTimersByTime(1001);
+    const current = await store.acquire('fenced', 60);
+    await store.complete('fenced', 'stale', 60, old!);
+    expect(await store.get('fenced')).toBeNull();
+    await store.complete('fenced', 'current', 60, current!);
+    await store.complete('fenced', 'stale again', 60, old!);
+    expect(await store.get('fenced')).toEqual({ found: true, value: 'current' });
+  });
+
   it('returns null after TTL expires', async () => {
     await store.acquire('key2', 10);
     await store.complete('key2', 'hello', 10);

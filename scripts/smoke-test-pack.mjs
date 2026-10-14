@@ -71,7 +71,7 @@ try {
     'node',
     [
       '-e',
-      `import('@goatnetwork/agentkit').then((m) => { if (typeof m.ExecutionRuntime !== 'function') { console.error('missing ExecutionRuntime'); process.exit(1); } process.stdout.write('barrel-ok\\n'); }).catch((e) => { console.error('barrel-fail', e); process.exit(1); });`,
+      `import('@goatnetwork/agentkit').then((m) => { if (typeof m.ExecutionRuntime !== 'function' || typeof m.PaykitService !== 'function' || typeof m.GoatFlowGatewayAdapter !== 'function') { console.error('missing ExecutionRuntime'); process.exit(1); } process.stdout.write('barrel-ok\\n'); }).catch((e) => { console.error('barrel-fail', e); process.exit(1); });`,
     ],
     { cwd: INSTALL_ROOT },
   );
@@ -81,6 +81,8 @@ try {
   const giftcardBin = join(pkgDir, 'bin', 'giftcard.mjs');
   run('node', [gnsBin, '--help'], { cwd: INSTALL_ROOT });
   run('node', [giftcardBin, '--help'], { cwd: INSTALL_ROOT });
+
+  run('node', [join(pkgDir, 'bin', 'paykit.mjs'), '--help'], { cwd: INSTALL_ROOT });
 
   // 5. Confirm tsx is NOT shipped as a runtime dependency.
   const pkgJson = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));

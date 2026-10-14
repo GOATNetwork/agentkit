@@ -6,8 +6,8 @@ const inputSchema = z.object({
   merchant_id: z.string().min(1).describe('Unique merchant identifier'),
   name: z.string().min(1).describe('Merchant display name'),
   email: z.string().email().describe('Owner email address'),
-  password: z.string().min(6).describe('Account password'),
-  receive_type: z.enum(['DIRECT', 'DELEGATE']).describe('Payment receive type'),
+  password: z.string().refine((value) => Buffer.byteLength(value, 'utf8') >= 8 && Buffer.byteLength(value, 'utf8') <= 72, 'Password must be 8–72 UTF-8 bytes').describe('Account password'),
+  receive_type: z.literal('DIRECT').default('DIRECT').describe('Self-service registration supports DIRECT merchants'),
 });
 
 export function merchantAuthRegisterAction(

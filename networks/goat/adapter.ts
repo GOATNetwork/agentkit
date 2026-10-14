@@ -1,14 +1,19 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac } from 'node:crypto';
+import { GoatFlowGatewayAdapter } from '../../plugins/x402/adapters/goat-flow-gateway';
+import { InMemoryPaymentRecoveryStore, type PaymentRecoveryStore } from '../../plugins/paykit/recovery';
 import { goatNetworks } from './config';
 
 export interface X402CreatePaymentParams {
-  to: string;
+  /** @deprecated Ignored by native Flow; the merchant determines the recipient. Set fromAddress for the payer. */
+  to?: string;
   asset: string;
   amount: string;
   expiresAt?: number;
-  idempotencyKey?: string;
-  fromAddress?: string;
+  idempotencyKey: string;
+  fromAddress: string;
   callbackCalldata?: string;
+  chainId?: number;
+  tokenContract?: string;
 }
 
 export interface X402CreatePaymentResult {
@@ -31,30 +36,26 @@ export interface BitVM2BridgeParams {
 
 type GoatNet = 'goat-mainnet' | 'goat-testnet';
 
-const ORDER_STATUS_MAP: Record<string, X402OrderStatusResult['status']> = {
-  CHECKOUT_VERIFIED: 'created',
-  PAYMENT_CONFIRMED: 'authorized',
-  INVOICED: 'settled',
-  FAILED: 'failed',
-  EXPIRED: 'expired',
-  CANCELLED: 'failed',
-};
-
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class GoatAdapter {
   private readonly timeoutMs: number;
+  private readonly recoveryStore: PaymentRecoveryStore;
+  private readonly recoveryNamespace: string;
 
-  constructor(private readonly network: GoatNet, options?: { timeoutMs?: number }) {
+  constructor(
+    private readonly network: GoatNet,
+    options?: { timeoutMs?: number; recoveryStore?: PaymentRecoveryStore; recoveryNamespace?: string },
+  ) {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.recoveryStore = options?.recoveryStore ?? new InMemoryPaymentRecoveryStore();
+    this.recoveryNamespace = options?.recoveryNamespace ?? `goat-adapter:${network}`;
   }
 
   private fetchWithTimeout(url: string, init: RequestInit = {}, externalSignal?: AbortSignal): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    const signal = externalSignal
-      ? AbortSignal.any([controller.signal, externalSignal])
-      : controller.signal;
+    const signal = externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal;
     return fetch(url, { ...init, signal }).finally(() => clearTimeout(timer));
   }
 
@@ -68,9 +69,7 @@ export class GoatAdapter {
     // default per network: mainnet vs testnet3. Trailing slash(es) are
     // stripped from the override so `${base}${path}` never yields `//api/v1`.
     if (process.env.GOAT_X402_BASE_URL) return process.env.GOAT_X402_BASE_URL.replace(/\/+$/, '');
-    return this.network === 'goat-mainnet'
-      ? 'https://flow-api.goat.network'
-      : 'https://flow-api.testnet3.goat.network';
+    return this.network === 'goat-mainnet' ? 'https://flow-api.goat.network' : 'https://flow-api.testnet3.goat.network';
   }
 
   private get x402ApiKey(): string | undefined {
@@ -89,17 +88,21 @@ export class GoatAdapter {
     if (!this.hasX402Credential()) {
       throw new Error(
         `${method}: missing GOAT_X402_API_KEY / GOAT_X402_API_SECRET. ` +
-        `Set these environment variables or provide credentials explicitly.`
+          `Set these environment variables or provide credentials explicitly.`,
       );
     }
   }
 
   async ping(signal?: AbortSignal): Promise<{ chainIdHex: string; rpcUrl: string }> {
-    const resp = await this.fetchWithTimeout(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
-    }, signal);
+    const resp = await this.fetchWithTimeout(
+      this.rpcUrl,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
+      },
+      signal,
+    );
 
     const json = (await resp.json()) as { result?: string };
     if (!json.result) throw new Error('Failed to ping Goat RPC');
@@ -107,114 +110,40 @@ export class GoatAdapter {
     return { chainIdHex: json.result, rpcUrl: this.rpcUrl };
   }
 
-  private signX402Request(params: Record<string, unknown>) {
-    if (!this.x402ApiKey || !this.x402ApiSecret) {
-      throw new Error('Missing GOAT_X402_API_KEY / GOAT_X402_API_SECRET');
+  private flowAdapter?: GoatFlowGatewayAdapter;
+  private flowConfigDigest?: string;
+
+  private getFlowAdapter(): GoatFlowGatewayAdapter {
+    this.requireX402Credential('GOAT Flow');
+    const configDigest = createHmac('sha256', this.x402ApiSecret!)
+      .update(JSON.stringify([this.x402BaseUrl, this.x402ApiKey]))
+      .digest('hex');
+    if (!this.flowAdapter || this.flowConfigDigest !== configDigest) {
+      this.flowAdapter = new GoatFlowGatewayAdapter(this.x402BaseUrl, {
+        apiKey: this.x402ApiKey!,
+        apiSecret: this.x402ApiSecret!,
+        defaultChainId: goatNetworks[this.network].chainId,
+        timeoutMs: this.timeoutMs,
+        recoveryStore: this.recoveryStore,
+        recoveryNamespace: this.recoveryNamespace,
+      });
+      this.flowConfigDigest = configDigest;
     }
-
-    const normalized: Record<string, string> = {};
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null && String(v) !== '') normalized[k] = String(v);
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const nonce = randomUUID();
-
-    normalized.api_key = this.x402ApiKey;
-    normalized.timestamp = timestamp;
-    normalized.nonce = nonce;
-
-    const payload = Object.keys(normalized)
-      .sort()
-      .map((k) => `${k}=${normalized[k]}`)
-      .join('&');
-
-    const sign = createHmac('sha256', this.x402ApiSecret).update(payload).digest('hex');
-
-    return {
-      'X-API-Key': this.x402ApiKey,
-      'X-Timestamp': timestamp,
-      'X-Nonce': nonce,
-      'X-Sign': sign,
-    };
-  }
-
-  private async x402Request<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
-    const headers = this.signX402Request(body ?? {});
-
-    const resp = await this.fetchWithTimeout(`${this.x402BaseUrl}${path}`, {
-      method,
-      headers: {
-        'content-type': 'application/json',
-        ...headers,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    }, signal);
-
-    const text = await resp.text();
-    let data: unknown = {};
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { message: text };
-    }
-
-    // create order may return 402 with x402 payload (expected)
-    if (!resp.ok && resp.status !== 402) {
-      const msg = (data as any)?.error || (data as any)?.message || `x402 request failed: ${resp.status}`;
-      throw new Error(msg);
-    }
-
-    return data as T;
+    return this.flowAdapter;
   }
 
   async x402CreatePayment(params: X402CreatePaymentParams, signal?: AbortSignal): Promise<X402CreatePaymentResult> {
-    this.requireX402Credential('x402CreatePayment');
-
-    const chainId = goatNetworks[this.network].chainId;
-    const body = {
-      dapp_order_id: params.idempotencyKey ?? `dapp_${Date.now()}`,
-      chain_id: chainId,
-      token_symbol: params.asset,
-      from_address: params.fromAddress ?? params.to,
-      amount_wei: params.amount,
-      callback_calldata: params.callbackCalldata,
-    };
-
-    const raw = await this.x402Request<any>('POST', '/api/v1/orders', body, signal);
-
-    return {
-      paymentId: raw?.order_id ?? `x402_${Date.now()}`,
-      status: 'created',
-      raw,
-    };
+    return this.getFlowAdapter().createPaymentIntent(params, signal);
   }
 
-  async x402AuthorizePayment(
-    paymentId: string,
-    signature?: string,
-    signal?: AbortSignal,
-  ): Promise<{ paymentId: string; status: 'authorized' | 'failed'; raw?: unknown }> {
-    this.requireX402Credential('x402AuthorizePayment');
-
-    if (!signature) {
-      return { paymentId, status: 'failed', raw: { message: 'missing signature for calldata-signature' } };
-    }
-
-    await this.x402Request('POST', `/api/v1/orders/${paymentId}/calldata-signature`, { signature }, signal);
-    return { paymentId, status: 'authorized' };
+  async x402AuthorizePayment(paymentId: string, signature?: string, signal?: AbortSignal) {
+    const adapter = this.getFlowAdapter();
+    if (!signature) return { paymentId, status: 'failed' as const };
+    return adapter.submitPaymentAuthorization(paymentId, signature, signal);
   }
 
   async x402GetPaymentStatus(paymentId: string, signal?: AbortSignal): Promise<X402OrderStatusResult> {
-    this.requireX402Credential('x402GetPaymentStatus');
-
-    const raw = await this.x402Request<any>('GET', `/api/v1/orders/${paymentId}`, undefined, signal);
-    const mapped = ORDER_STATUS_MAP[String(raw?.status)] ?? 'created';
-    return {
-      paymentId,
-      status: mapped,
-      raw,
-    };
+    return this.getFlowAdapter().getPaymentStatus(paymentId, signal);
   }
 
   async bitvm2Deposit(params: BitVM2BridgeParams): Promise<{ bridgeRequestId: string; status: 'CREATED' }> {
@@ -225,7 +154,10 @@ export class GoatAdapter {
     return { bridgeRequestId: `wd_${params.amountSats}_${Date.now()}`, status: 'CREATED' };
   }
 
-  async bitvm2GetStatus(bridgeRequestId: string): Promise<{ bridgeRequestId: string; status: 'CREATED' | 'PENDING_L1' | 'PROVING' | 'PROVED' | 'FINALIZING' | 'FINALIZED' | 'FAILED' }> {
+  async bitvm2GetStatus(bridgeRequestId: string): Promise<{
+    bridgeRequestId: string;
+    status: 'CREATED' | 'PENDING_L1' | 'PROVING' | 'PROVED' | 'FINALIZING' | 'FINALIZED' | 'FAILED';
+  }> {
     if (bridgeRequestId.startsWith('dep_')) {
       return { bridgeRequestId, status: 'PENDING_L1' };
     }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
 import { evmAddress } from '../../../core/schema/validators';
+import { transferCheckpoints } from '../../../core/wallet/checkpoints';
 
 export interface TransferErc20Input {
   tokenAddress: string;
@@ -25,10 +26,11 @@ export function transferErc20Action(wallet: WalletProvider): ActionDefinition<Tr
     description: 'Transfer ERC20 tokens to an address',
     riskLevel: 'high',
     requiresConfirmation: true,
+    retryable: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
-      return wallet.transferErc20(input.tokenAddress, input.to, input.amount, { signal: ctx.signal });
+      return wallet.transferErc20(input.tokenAddress, input.to, input.amount, transferCheckpoints(ctx));
     },
   };
 }

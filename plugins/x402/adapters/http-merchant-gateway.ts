@@ -84,8 +84,12 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'merchant create-order failed');
 
+    const paymentId = data.paymentId ?? data.orderId ?? data.order_id;
+    if (typeof paymentId !== 'string' || !paymentId.trim()) {
+      throw new AgentkitRuntimeError(ErrorCodes.ADAPTER_REQUEST_FAILED, 'Merchant response missing payment ID');
+    }
     return {
-      paymentId: data.paymentId ?? data.orderId ?? data.order_id,
+      paymentId,
       status: 'created',
       payToAddress: data.payToAddress ?? data.pay_to_address,
       tokenAddress: data.tokenAddress ?? data.token_address,
@@ -102,10 +106,12 @@ export class HttpMerchantGatewayAdapter implements MerchantGatewayAdapter {
     const data = await parseBodySafe(resp);
     assertOk(resp, data, 'merchant order-status failed');
 
-    const rawStatus = String(data.status ?? data.orderStatus ?? 'CHECKOUT_VERIFIED');
+    const rawStatus = String(data.status ?? data.orderStatus);
+    const status = ORDER_STATUS_MAP[rawStatus] ?? (['created', 'authorized', 'settled', 'failed', 'expired'].includes(rawStatus) ? rawStatus as PaymentStatus : undefined);
+    if (!status) throw new AgentkitRuntimeError(ErrorCodes.ADAPTER_REQUEST_FAILED, 'Unknown merchant payment status');
     return {
       paymentId,
-      status: ORDER_STATUS_MAP[rawStatus] ?? 'created',
+      status,
       raw: data,
     };
   }

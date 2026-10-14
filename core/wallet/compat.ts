@@ -1,4 +1,4 @@
-import type { WalletProvider } from './wallet-provider';
+import type { WalletProvider, WalletCallOptions } from './wallet-provider';
 import type {
   PayerWalletAdapter,
   CalldataSignRequest,
@@ -20,8 +20,15 @@ export class WalletProviderPayerAdapter implements PayerWalletAdapter {
     return this.wallet.signTypedData(request.domain, request.types, request.message);
   }
 
-  async transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult> {
-    const result = await this.wallet.transferErc20(input.tokenAddress, input.to, input.amount, { signal });
+  async transferToken(
+    input: TransferTokenInput,
+    signal?: AbortSignal,
+    options?: WalletCallOptions,
+  ): Promise<TransferTokenResult> {
+    const result = await this.wallet.transferErc20(input.tokenAddress, input.to, input.amount, {
+      ...options,
+      signal: signal ?? options?.signal,
+    });
     return { txHash: result.txHash };
   }
 

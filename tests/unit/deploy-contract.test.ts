@@ -15,9 +15,7 @@ function mockWallet(overrides: Partial<WalletProvider> = {}): WalletProvider {
     signTypedData: vi.fn().mockResolvedValue('0xsig'),
     callContract: vi.fn().mockResolvedValue('0x'),
     writeContract: vi.fn().mockResolvedValue({ txHash: '0xtx' }),
-    deployContract: vi
-      .fn()
-      .mockResolvedValue({ txHash: '0xtx_deploy', contractAddress: '0xCONTRACT' }),
+    deployContract: vi.fn().mockResolvedValue({ txHash: '0xtx_deploy', contractAddress: '0xCONTRACT' }),
     ...overrides,
   };
 }
@@ -50,7 +48,11 @@ describe('wallet.deploy_contract', () => {
       '0x6080',
       [42],
       undefined,
-      { signal: undefined },
+      expect.objectContaining({
+        signal: undefined,
+        onSignedTransaction: expect.any(Function),
+        onBroadcast: expect.any(Function),
+      }),
     );
   });
 
@@ -69,7 +71,11 @@ describe('wallet.deploy_contract', () => {
       '0x6080',
       [],
       '1000000',
-      { signal: undefined },
+      expect.objectContaining({
+        signal: undefined,
+        onSignedTransaction: expect.any(Function),
+        onBroadcast: expect.any(Function),
+      }),
     );
   });
 
@@ -87,7 +93,11 @@ describe('wallet.deploy_contract', () => {
       '0xabcdef',
       [],
       undefined,
-      { signal: undefined },
+      expect.objectContaining({
+        signal: undefined,
+        onSignedTransaction: expect.any(Function),
+        onBroadcast: expect.any(Function),
+      }),
     );
   });
 });

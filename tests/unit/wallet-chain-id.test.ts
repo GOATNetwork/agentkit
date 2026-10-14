@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { custom, defineChain } from 'viem';
+import { PaykitService, InMemoryPaymentRecoveryStore } from '../../plugins/paykit';
+import { PAYER, payment, ctx, fakeWallet, routes } from '../fixtures/paykit';
 import { NoopWalletProvider } from '../../core/wallet/noop-wallet-provider';
 import { EvmWalletProvider } from '../../core/wallet/evm-wallet-provider';
 import { ViemWalletProvider } from '../../core/wallet/viem-wallet-provider';
@@ -63,4 +66,32 @@ describe('ViemWalletProvider.getChainId', () => {
     await expect(result).resolves.toBe(8453);
     expect(typeof (await result)).toBe('number');
   });
+});
+
+it('replays a completed payment with a real viem JSON-RPC account while all RPCs are offline', async () => {
+  const recoveryStore = new InMemoryPaymentRecoveryStore();
+  const first = await new PaykitService({ wallet: fakeWallet().wallet, recoveryStore, fetchImpl: routes() }).pay(
+    payment,
+    ctx,
+  );
+  const request = vi.fn(async () => {
+    throw new Error('RPC offline');
+  });
+  const chain = defineChain({
+    id: 4217,
+    name: 'GOAT',
+    nativeCurrency: { name: 'BTC', symbol: 'BTC', decimals: 18 },
+    rpcUrls: { default: { http: ['http://127.0.0.1:1'] } },
+  });
+  const wallet = new ViemWalletProvider(
+    { address: PAYER as `0x${string}`, type: 'json-rpc' },
+    chain,
+    custom({ request }),
+  );
+  const fetchImpl = vi.fn<typeof fetch>(async () => {
+    throw new Error('merchant offline');
+  });
+  expect(await new PaykitService({ wallet, recoveryStore, fetchImpl }).pay(payment, ctx)).toEqual(first);
+  expect(request).not.toHaveBeenCalled();
+  expect(fetchImpl).not.toHaveBeenCalled();
 });

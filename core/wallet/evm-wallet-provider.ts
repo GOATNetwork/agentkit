@@ -1,5 +1,8 @@
-import { Contract, ContractFactory, type Provider, type Signer } from 'ethers';
+import { Contract, ContractFactory, getCreateAddress, type Provider, type Signer } from 'ethers';
 import type { WalletProvider, WalletCallOptions } from './wallet-provider';
+import { broadcastTransaction, confirmEthersTransaction } from './broadcast-transaction';
+
+import { throwIfAborted } from '../runtime/abort';
 
 const ERC20_ABI = [
   'function balanceOf(address owner) view returns (uint256)',
@@ -60,54 +63,57 @@ export class EvmWalletProvider implements WalletProvider {
     return balance.toString();
   }
 
-  private throwIfAborted(signal?: AbortSignal): void {
-    if (signal?.aborted) throw new Error('Operation aborted');
-  }
-
-  private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-    if (!signal) return promise;
-    this.throwIfAborted(signal);
-    return new Promise<T>((resolve, reject) => {
-      // `{ once: true }` only auto-removes after the listener fires. When
-      // `promise` wins the race the listener stays attached until the signal
-      // is aborted; a long-lived signal reused across many wallet calls
-      // would then trip Node's MaxListenersExceededWarning. Detach
-      // explicitly on settle.
-      const onAbort = (): void => reject(new Error('Operation aborted'));
-      signal.addEventListener('abort', onAbort, { once: true });
-      promise.then(
-        (value) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve(value);
-        },
-        (err) => {
-          signal.removeEventListener('abort', onAbort);
-          reject(err);
-        },
-      );
-    });
-  }
-
   async transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
-    this.throwIfAborted(options?.signal);
-    const tx = await this.raceSignal(this.signer.sendTransaction({ to, value: BigInt(amountWei) }), options?.signal);
-    const receipt = await this.raceSignal(tx.wait(), options?.signal);
+    throwIfAborted(options?.signal);
+    const tx = await broadcastTransaction(
+      this.signer,
+      { to, value: BigInt(amountWei) },
+      options?.signal,
+      options?.onSignedTransaction,
+    );
+    const receipt = await confirmEthersTransaction(tx, options);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
-  async transferErc20(tokenAddress: string, to: string, amount: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
-    this.throwIfAborted(options?.signal);
+  async broadcastErc20(
+    tokenAddress: string,
+    to: string,
+    amount: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }> {
+    throwIfAborted(options?.signal);
     const token = new Contract(tokenAddress, ERC20_ABI, this.signer);
-    const tx = await this.raceSignal(token.transfer(to, BigInt(amount)), options?.signal);
-    const receipt = await this.raceSignal(tx.wait() as Promise<any>, options?.signal);
+    const request = await token.transfer.populateTransaction(to, BigInt(amount));
+    const tx = await broadcastTransaction(this.signer, request, options?.signal, options?.onSignedTransaction);
+    if (!tx.hash) throw new Error('Transfer submission returned no transaction hash');
+    return { txHash: tx.hash };
+  }
+
+  async transferErc20(
+    tokenAddress: string,
+    to: string,
+    amount: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }> {
+    throwIfAborted(options?.signal);
+    const token = new Contract(tokenAddress, ERC20_ABI, this.signer);
+    const request = await token.transfer.populateTransaction(to, BigInt(amount));
+    const tx = await broadcastTransaction(this.signer, request, options?.signal, options?.onSignedTransaction);
+    const receipt = await confirmEthersTransaction(tx, options);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
-  async approveErc20(tokenAddress: string, spender: string, amount: string, options?: WalletCallOptions): Promise<{ txHash: string }> {
-    this.throwIfAborted(options?.signal);
+  async approveErc20(
+    tokenAddress: string,
+    spender: string,
+    amount: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }> {
+    throwIfAborted(options?.signal);
     const token = new Contract(tokenAddress, ERC20_ABI, this.signer);
-    const tx = await this.raceSignal(token.approve(spender, BigInt(amount)), options?.signal);
-    const receipt = await this.raceSignal(tx.wait() as Promise<any>, options?.signal);
+    const request = await token.approve.populateTransaction(spender, BigInt(amount));
+    const tx = await broadcastTransaction(this.signer, request, options?.signal, options?.onSignedTransaction);
+    const receipt = await confirmEthersTransaction(tx, options);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
@@ -119,12 +125,7 @@ export class EvmWalletProvider implements WalletProvider {
     return this.signer.signTypedData(domain, types as any, value);
   }
 
-  async callContract(
-    contractAddress: string,
-    abi: string[],
-    functionName: string,
-    args: unknown[],
-  ): Promise<unknown> {
+  async callContract(contractAddress: string, abi: string[], functionName: string, args: unknown[]): Promise<unknown> {
     const contract = new Contract(contractAddress, abi, this.provider);
     return contract[functionName](...args);
   }
@@ -137,11 +138,12 @@ export class EvmWalletProvider implements WalletProvider {
     value?: string,
     options?: WalletCallOptions,
   ): Promise<{ txHash: string }> {
-    this.throwIfAborted(options?.signal);
+    throwIfAborted(options?.signal);
     const contract = new Contract(contractAddress, abi, this.signer);
     const overrides = value ? { value: BigInt(value) } : {};
-    const tx = await this.raceSignal(contract[functionName](...args, overrides), options?.signal);
-    const receipt = await this.raceSignal(tx.wait() as Promise<any>, options?.signal);
+    const request = await contract[functionName].populateTransaction(...args, overrides);
+    const tx = await broadcastTransaction(this.signer, request, options?.signal, options?.onSignedTransaction);
+    const receipt = await confirmEthersTransaction(tx, options);
     return { txHash: receipt?.hash ?? tx.hash };
   }
 
@@ -152,13 +154,15 @@ export class EvmWalletProvider implements WalletProvider {
     value?: string,
     options?: WalletCallOptions,
   ): Promise<{ txHash: string; contractAddress: string }> {
-    this.throwIfAborted(options?.signal);
+    throwIfAborted(options?.signal);
     const factory = new ContractFactory(abi, bytecode, this.signer);
     const overrides = value ? { value: BigInt(value) } : {};
-    const contract = await this.raceSignal(factory.deploy(...args, overrides), options?.signal);
-    const deployTx = contract.deploymentTransaction()!;
-    await this.raceSignal(deployTx.wait(), options?.signal);
-    const contractAddress = await contract.getAddress();
-    return { txHash: deployTx.hash, contractAddress };
+    const request = await factory.getDeployTransaction(...args, overrides);
+    const deployTx = await broadcastTransaction(this.signer, request, options?.signal, options?.onSignedTransaction);
+    const receipt = await confirmEthersTransaction(deployTx, options);
+    return {
+      txHash: receipt?.hash ?? deployTx.hash,
+      contractAddress: receipt?.contractAddress ?? getCreateAddress({ from: deployTx.from, nonce: deployTx.nonce }),
+    };
   }
 }

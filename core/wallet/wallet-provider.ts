@@ -1,5 +1,9 @@
 export interface WalletCallOptions {
   signal?: AbortSignal;
+  /** Persist the deterministic signed hash before any broadcast RPC. */
+  onSignedTransaction?: (txHash: string) => void | Promise<void>;
+  /** Checkpoint an accepted broadcast before waiting for confirmations. */
+  onBroadcast?: (txHash: string) => void | Promise<void>;
 }
 
 export interface WalletProvider {
@@ -32,10 +36,44 @@ export interface WalletProvider {
   getBalance(address?: string): Promise<string>;
   getErc20Balance(tokenAddress: string, owner?: string): Promise<string>;
   transferNative(to: string, amountWei: string, options?: WalletCallOptions): Promise<{ txHash: string }>;
-  transferErc20(tokenAddress: string, to: string, amount: string, options?: WalletCallOptions): Promise<{ txHash: string }>;
-  approveErc20(tokenAddress: string, spender: string, amount: string, options?: WalletCallOptions): Promise<{ txHash: string }>;
-  signTypedData(domain: Record<string, unknown>, types: Record<string, unknown[]>, value: Record<string, unknown>): Promise<string>;
+  transferErc20(
+    tokenAddress: string,
+    to: string,
+    amount: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }>;
+  /** Returns immediately after submission; does not wait for mining. Optional for existing adapters. */
+  broadcastErc20?(
+    tokenAddress: string,
+    to: string,
+    amount: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }>;
+  approveErc20(
+    tokenAddress: string,
+    spender: string,
+    amount: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }>;
+  signTypedData(
+    domain: Record<string, unknown>,
+    types: Record<string, unknown[]>,
+    value: Record<string, unknown>,
+  ): Promise<string>;
   callContract(contractAddress: string, abi: string[], functionName: string, args: unknown[]): Promise<unknown>;
-  writeContract(contractAddress: string, abi: string[], functionName: string, args: unknown[], value?: string, options?: WalletCallOptions): Promise<{ txHash: string }>;
-  deployContract(abi: string[], bytecode: string, args?: unknown[], value?: string, options?: WalletCallOptions): Promise<{ txHash: string; contractAddress: string }>;
+  writeContract(
+    contractAddress: string,
+    abi: string[],
+    functionName: string,
+    args: unknown[],
+    value?: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string }>;
+  deployContract(
+    abi: string[],
+    bytecode: string,
+    args?: unknown[],
+    value?: string,
+    options?: WalletCallOptions,
+  ): Promise<{ txHash: string; contractAddress: string }>;
 }

@@ -1,6 +1,10 @@
 import { Contract, type Signer } from 'ethers';
 import type { CalldataSignRequest, PayerWalletAdapter, TransferTokenInput, TransferTokenResult } from './types';
 
+import { broadcastTransaction, confirmEthersTransaction } from '../../../core/wallet/broadcast-transaction';
+import { throwIfAborted } from '../../../core/runtime/abort';
+import type { WalletCallOptions } from '../../../core/wallet/wallet-provider';
+
 const ERC20_ABI = ['function transfer(address to, uint256 value) returns (bool)'];
 
 export class EvmPayerWalletAdapter implements PayerWalletAdapter {
@@ -34,35 +38,17 @@ export class EvmPayerWalletAdapter implements PayerWalletAdapter {
     return signature;
   }
 
-  private raceSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-    if (!signal) return promise;
-    if (signal.aborted) throw new Error('Operation aborted');
-    // `{ once: true }` only auto-removes after the listener fires. When
-    // `promise` wins the race the listener stays attached until the signal
-    // is aborted; a long-lived signal reused across many payer calls
-    // would then trip Node's MaxListenersExceededWarning. Detach
-    // explicitly on settle — same pattern as core/wallet/{evm,viem}-wallet-provider.ts.
-    return new Promise<T>((resolve, reject) => {
-      const onAbort = (): void => reject(new Error('Operation aborted'));
-      signal.addEventListener('abort', onAbort, { once: true });
-      promise.then(
-        (value) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve(value);
-        },
-        (err) => {
-          signal.removeEventListener('abort', onAbort);
-          reject(err);
-        },
-      );
-    });
-  }
-
-  async transferToken(input: TransferTokenInput, signal?: AbortSignal): Promise<TransferTokenResult> {
-    if (signal?.aborted) throw new Error('Operation aborted');
+  async transferToken(
+    input: TransferTokenInput,
+    signal?: AbortSignal,
+    options?: WalletCallOptions,
+  ): Promise<TransferTokenResult> {
+    signal ??= options?.signal;
+    throwIfAborted(signal);
     const token = new Contract(input.tokenAddress, ERC20_ABI, this.signer);
-    const tx = await this.raceSignal(token.transfer(input.to, BigInt(input.amount)), signal);
-    const receipt = await this.raceSignal(tx.wait() as Promise<any>, signal);
+    const request = await token.transfer.populateTransaction(input.to, BigInt(input.amount));
+    const tx = await broadcastTransaction(this.signer, request, signal, options?.onSignedTransaction);
+    const receipt = await confirmEthersTransaction(tx, { ...options, signal });
     return { txHash: (receipt?.hash ?? tx.hash) as string };
   }
 }

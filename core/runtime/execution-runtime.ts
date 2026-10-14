@@ -1,54 +1,16 @@
-import type { ActionContext, ActionDefinition } from '../schema/action';
+import type { ActionContext, ActionDefinition, ActionRecovery } from '../schema/action';
 import { PolicyEngine } from '../policy/policy-engine';
 import { ErrorCodes, type ErrorCode } from '../errors/error-codes';
 import { AgentkitRuntimeError, normalizeError } from '../errors/error';
-import { validateAgainstJsonSchema, validateWithZod } from './schema-validator';
+import { formatZodIssues, validateAgainstJsonSchema, validateWithZod } from './schema-validator';
+import { isValidTimeout, MAX_TIMEOUT_MS } from './timeout';
+import { redactFields } from './redaction';
+import { notifyRecovery } from './recovery-observer';
 import { consoleLogger, type RuntimeLogger } from './logger';
 import { InMemoryIdempotencyStore, type IdempotencyStore } from './idempotency/store';
 import { NoopRuntimeMetrics, type RuntimeMetrics } from '../metrics/metrics';
 import type { ExecutionHooks } from './execution-hooks';
-
-/**
- * Replace values of named fields with '[REDACTED]' in a shallow copy.
- *
- * "Shallow" means: nested OBJECTS are not walked — secrets must be at the
- * top level (or one array hop down) of the value you hand in. The
- * redactor does, however, handle two array shapes so list-style action
- * outputs are protected without callers having to flatten:
- *
- *   1. The input itself is an array of records → each record gets shallow
- *      redaction.
- *   2. A top-level field value is an array of records → each element gets
- *      shallow redaction with the same field list.
- *
- * Anything deeper than that — a nested object inside a record, or an
- * array of arrays — is intentionally left alone. Actions that need to
- * protect deeper structures must either flatten them at the top level
- * before returning, or split the secret out into its own action.
- */
-function redactFields(obj: unknown, fields: readonly string[]): unknown {
-  if (obj == null || typeof obj !== 'object' || !fields.length) return obj;
-  if (Array.isArray(obj)) {
-    return obj.map((item) => redactFields(item, fields));
-  }
-  const copy = { ...(obj as Record<string, unknown>) };
-  for (const f of fields) {
-    if (f in copy) copy[f] = '[REDACTED]';
-  }
-  // Walk one hop into top-level arrays so e.g. `output.orders[i].card_code`
-  // is reached when `card_code` is listed as a sensitive field.
-  for (const k of Object.keys(copy)) {
-    const v = copy[k];
-    if (Array.isArray(v)) {
-      copy[k] = v.map((item) =>
-        item && typeof item === 'object' && !Array.isArray(item)
-          ? redactFields(item, fields)
-          : item,
-      );
-    }
-  }
-  return copy;
-}
+import { raceSignal, throwIfAborted } from './abort';
 
 /** Error codes that should NOT be retried — they will fail identically on retry. */
 const NON_RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set([
@@ -56,11 +18,13 @@ const NON_RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set([
   ErrorCodes.POLICY_BLOCKED,
   ErrorCodes.ACTION_NOT_FOUND,
   ErrorCodes.ABORTED,
+  ErrorCodes.RECOVERY_REQUIRED,
 ]);
 
 export interface ExecutionOptions {
   confirmed?: boolean;
   idempotencyKey?: string;
+  /** Integer milliseconds, 1–2,147,483,647; 0 disables the timeout, omitted uses defaultTimeoutMs. */
   timeoutMs?: number;
   /**
    * Field names listed in `action.sensitiveOutputFields` that should NOT
@@ -77,6 +41,7 @@ export interface ExecutionOptions {
 export interface ExecutionConfig {
   maxRetries: number;
   retryDelayMs: number;
+  /** Integer milliseconds, 1–2,147,483,647; 0 or omitted disables the default timeout. */
   defaultTimeoutMs?: number;
   /** If true, high-risk write actions (riskLevel !== 'read') skip automatic retries. Default: true. */
   noRetryHighRiskWrites?: boolean;
@@ -85,6 +50,7 @@ export interface ExecutionConfig {
   logger?: RuntimeLogger;
   metrics?: RuntimeMetrics;
   idempotencyStore?: IdempotencyStore;
+  /** Lock/cache TTL, default 3600. Expiry neither cancels execution nor resolves result.settled. */
   idempotencyTtlSeconds?: number;
   hooks?: ExecutionHooks;
 }
@@ -97,12 +63,24 @@ export interface ExecutionResult<T = unknown> {
   traceId: string;
   action: string;
   attempts: number;
+  /** Caller-only payment recovery data; omitted from logs and execution hooks. */
+  recovery?: ActionRecovery;
+  /**
+   * On an interrupted execution, await the underlying action and obtain its final
+   * recovery checkpoint. Non-enumerable: never serialized into logs/JSON output.
+   * Keep wallet providers alive until this settles if a submission is in flight.
+   * Non-cooperative actions can leave this pending indefinitely, even after the lock TTL expires.
+   */
+  settled?: Promise<ActionRecovery | undefined>;
 }
 
 export class ExecutionRuntime {
   private readonly config: ExecutionConfig;
 
-  constructor(private readonly policy: PolicyEngine, config?: Partial<ExecutionConfig>) {
+  constructor(
+    private readonly policy: PolicyEngine,
+    config?: Partial<ExecutionConfig>,
+  ) {
     this.config = {
       maxRetries: config?.maxRetries ?? 2,
       retryDelayMs: config?.retryDelayMs ?? 200,
@@ -121,13 +99,19 @@ export class ExecutionRuntime {
     action: ActionDefinition<TInput, TOutput>,
     inputContext: ActionContext,
     input: TInput,
-    options: ExecutionOptions = {}
+    options: ExecutionOptions = {},
   ): Promise<ExecutionResult<TOutput>> {
+    let recovery: ActionRecovery | undefined;
     // Propagate the runtime idempotency key into the ActionContext so that
     // execute() implementations can read it back. This does not change how
     // the idempotency cache key is computed.
+    // Do not invoke an observer getter while copying the context. Its only
+    // read belongs inside notifyRecovery's best-effort boundary.
+    const contextFields = Reflect.ownKeys(inputContext)
+      .filter((key) => key !== 'checkpointRecovery' && Object.prototype.propertyIsEnumerable.call(inputContext, key))
+      .map((key) => [key, Reflect.get(inputContext, key)]);
     const context: ActionContext = {
-      ...inputContext,
+      ...(Object.fromEntries(contextFields) as Omit<ActionContext, 'checkpointRecovery'>),
       // Prefer the runtime option; fall back to whatever the caller may
       // have pre-populated on the context (pre-population is a supported
       // pattern for cross-runtime delegation).
@@ -138,18 +122,53 @@ export class ExecutionRuntime {
       // entirely — that is the existing behavior; callers wanting
       // dedup must pass a non-empty string.
       idempotencyKey: options.idempotencyKey ?? inputContext.idempotencyKey,
+      checkpointRecovery: (value) => {
+        recovery = structuredClone(value);
+        notifyRecovery(inputContext, recovery);
+      },
+    };
+    const captureErrorRecovery = (error: unknown) => {
+      if (!(error instanceof AgentkitRuntimeError) || !error.recovery) return;
+      const next = structuredClone(error.recovery);
+      // Wallet helpers lack action identity. Enrich their hash-based fallback
+      // with the latest matching action checkpoint, without aliasing the error.
+      if (
+        recovery?.kind === 'transaction' &&
+        next.kind === 'transaction' &&
+        (!recovery.txHash || !next.txHash || recovery.txHash === next.txHash) &&
+        (!recovery.signedTxHash || !next.signedTxHash || recovery.signedTxHash === next.signedTxHash)
+      ) {
+        recovery = { ...recovery, ...next, operationId: recovery.operationId };
+      } else recovery = next;
     };
     const traceId = context.traceId;
     const logger = this.config.logger!;
     const metrics = this.config.metrics!;
     const startedAt = Date.now();
 
+    // Reject timer overflow before acquiring a key or starting the action.
+    const timeoutMs = options.timeoutMs ?? this.config.defaultTimeoutMs;
+    if (timeoutMs !== undefined && timeoutMs !== 0 && !isValidTimeout(timeoutMs)) {
+      metrics.incCounter('runtime.error', 1, { action: action.name, code: ErrorCodes.INVALID_INPUT });
+      return {
+        ok: false,
+        errorCode: ErrorCodes.INVALID_INPUT,
+        error: `timeoutMs must be 0 (disabled) or an integer between 1 and ${MAX_TIMEOUT_MS}`,
+        traceId,
+        action: action.name,
+        attempts: 0,
+      };
+    }
+
     // --- Input validation ---
-    const schemaErrors = action.zodInputSchema
-      ? validateWithZod(action.zodInputSchema, input)
+    const parsedInput = action.zodInputSchema?.safeParse(input);
+    const schemaErrors = parsedInput
+      ? parsedInput.success
+        ? []
+        : formatZodIssues(parsedInput.error.issues)
       : action.inputSchema
-      ? validateAgainstJsonSchema(action.inputSchema as any, input)
-      : [];
+        ? validateAgainstJsonSchema(action.inputSchema as any, input)
+        : [];
 
     if (schemaErrors.length) {
       metrics.incCounter('runtime.error', 1, { action: action.name, code: ErrorCodes.INVALID_INPUT });
@@ -163,12 +182,9 @@ export class ExecutionRuntime {
       };
     }
 
-    // Use the Zod-parsed value so `.default()` / `.transform()` are applied
-    // before execute() (and before the input is passed to on-chain encoders).
-    // Validation above already succeeded, so this parse cannot throw.
-    if (action.zodInputSchema) {
-      input = action.zodInputSchema.parse(input) as TInput;
-    }
+    // The runtime owns action validation. Reuse this parse so non-idempotent
+    // transforms and refinements run only once per invocation.
+    if (parsedInput?.success) input = parsedInput.data as TInput;
 
     // --- Policy evaluation (includes action.networks check) ---
     const decision = this.policy.evaluate({
@@ -197,7 +213,10 @@ export class ExecutionRuntime {
     }
 
     // --- Idempotency: atomic acquire ---
-    const cacheKey = options.idempotencyKey ? `${action.name}:${options.idempotencyKey}` : undefined;
+    const cacheKey =
+      options.idempotencyKey && action.idempotencyMode !== 'action'
+        ? `${action.name}:${options.idempotencyKey}`
+        : undefined;
     let lockToken: string | undefined;
     if (cacheKey) {
       const cached = await this.config.idempotencyStore!.get<TOutput>(cacheKey);
@@ -219,7 +238,7 @@ export class ExecutionRuntime {
         return {
           ok: false,
           errorCode: ErrorCodes.IDEMPOTENCY_CONFLICT,
-          error: `Another execution is in progress for key: ${options.idempotencyKey}`,
+          error: `Key is reserved by an executing or unreconciled operation: ${options.idempotencyKey}`,
           traceId,
           action: action.name,
           attempts: 0,
@@ -230,11 +249,18 @@ export class ExecutionRuntime {
 
     // --- Determine effective max retries ---
     const isHighRiskWrite = action.riskLevel !== 'read' && this.config.noRetryHighRiskWrites;
-    const effectiveMaxRetries = isHighRiskWrite ? 0 : this.config.maxRetries;
+    const effectiveMaxRetries = isHighRiskWrite || action.retryable === false ? 0 : this.config.maxRetries;
 
     let attempt = 0;
     let lastErr: unknown;
 
+    let executionSettled: Promise<void> | undefined;
+    let executionPending = false;
+    let success: { output: TOutput } | undefined;
+    const completedResult = (): ExecutionResult<TOutput> | undefined =>
+      success ? { ok: true, output: success.output, traceId, action: action.name, attempts: attempt } : undefined;
+    // Only an error returned to the caller makes a later success an interrupted one.
+    let afterInterruption = false;
     while (attempt <= effectiveMaxRetries) {
       attempt += 1;
       const controller = new AbortController();
@@ -244,60 +270,86 @@ export class ExecutionRuntime {
           traceId,
           action: action.name,
           attempt,
-          input: action.sensitiveInputFields?.length
-            ? redactFields(input, action.sensitiveInputFields)
-            : input,
+          input: action.sensitiveInputFields?.length ? redactFields(input, action.sensitiveInputFields) : input,
           timestamp: Date.now(),
         });
-        const timeoutMs = options.timeoutMs ?? this.config.defaultTimeoutMs;
-        const mergedSignal = timeoutMs && context.signal
-          ? AbortSignal.any([controller.signal, context.signal])
-          : timeoutMs ? controller.signal : context.signal;
+        const mergedSignal =
+          timeoutMs && context.signal
+            ? AbortSignal.any([controller.signal, context.signal])
+            : timeoutMs
+              ? controller.signal
+              : context.signal;
         const ctxWithSignal = mergedSignal ? { ...context, signal: mergedSignal } : context;
+        executionPending = true;
+        // Validation and caching belong to the execution, even if its caller
+        // stops waiting. Keep the key locked until this promise settles.
+        const execution = Promise.resolve()
+          .then(async () => {
+            throwIfAborted(ctxWithSignal.signal);
+            const output = await action.execute(ctxWithSignal, input);
+            if (this.config.validateOutput) {
+              const outputErrors = action.zodOutputSchema
+                ? validateWithZod(action.zodOutputSchema, output)
+                : action.outputSchema
+                  ? validateAgainstJsonSchema(action.outputSchema as any, output)
+                  : [];
+              if (outputErrors.length) {
+                throw new AgentkitRuntimeError(
+                  ErrorCodes.INVALID_OUTPUT,
+                  `Output schema validation failed: ${outputErrors.join('; ')}`,
+                );
+              }
+            }
+            if (cacheKey) {
+              await this.config.idempotencyStore!.complete(
+                cacheKey,
+                output,
+                this.config.idempotencyTtlSeconds,
+                lockToken,
+              );
+            }
+            logger.log('info', 'action run success', {
+              traceId,
+              action: action.name,
+              attempt,
+              ...(afterInterruption ? { afterInterruption: true } : {}),
+            });
+            const effectiveSensitiveOutputFields = action.sensitiveOutputFields?.length
+              ? options.revealedFields?.length
+                ? action.sensitiveOutputFields.filter((f) => !options.revealedFields!.includes(f))
+                : action.sensitiveOutputFields
+              : undefined;
+            this.config.hooks?.onActionSuccess?.({
+              traceId,
+              action: action.name,
+              attempt,
+              output: effectiveSensitiveOutputFields?.length
+                ? redactFields(output, effectiveSensitiveOutputFields)
+                : output,
+              durationMs: Date.now() - startedAt,
+              timestamp: Date.now(),
+              ...(afterInterruption ? { afterInterruption: true } : {}),
+            });
+            metrics.incCounter('runtime.success', 1, { action: action.name });
+            if (afterInterruption) metrics.incCounter('runtime.late_success', 1, { action: action.name });
+            metrics.observe('runtime.latency_ms', Date.now() - startedAt, { action: action.name });
+            success = { output };
+            return output;
+          })
+          .finally(() => {
+            executionPending = false;
+          });
+        executionSettled = execution.then(
+          () => {},
+          (error) => {
+            captureErrorRecovery(error);
+          },
+        );
+        const abortable = raceSignal(execution, context.signal);
         const output = timeoutMs
-          ? await this.withTimeout(action.execute(ctxWithSignal, input), timeoutMs, action.name, controller)
-          : await action.execute(ctxWithSignal, input);
+          ? await this.withTimeout(abortable, timeoutMs, action.name, controller)
+          : await abortable;
 
-        // --- Output validation (M-02) ---
-        if (this.config.validateOutput) {
-          const outputErrors = action.zodOutputSchema
-            ? validateWithZod(action.zodOutputSchema, output)
-            : action.outputSchema
-            ? validateAgainstJsonSchema(action.outputSchema as any, output)
-            : [];
-          if (outputErrors.length) {
-            throw new AgentkitRuntimeError(
-              ErrorCodes.INVALID_OUTPUT,
-              `Output schema validation failed: ${outputErrors.join('; ')}`
-            );
-          }
-        }
-
-        if (cacheKey) {
-          await this.config.idempotencyStore!.complete(
-            cacheKey,
-            output,
-            this.config.idempotencyTtlSeconds
-          );
-        }
-        logger.log('info', 'action run success', { traceId, action: action.name, attempt });
-        const effectiveSensitiveOutputFields = action.sensitiveOutputFields?.length
-          ? options.revealedFields?.length
-            ? action.sensitiveOutputFields.filter((f) => !options.revealedFields!.includes(f))
-            : action.sensitiveOutputFields
-          : undefined;
-        this.config.hooks?.onActionSuccess?.({
-          traceId,
-          action: action.name,
-          attempt,
-          output: effectiveSensitiveOutputFields?.length
-            ? redactFields(output, effectiveSensitiveOutputFields)
-            : output,
-          durationMs: Date.now() - startedAt,
-          timestamp: Date.now(),
-        });
-        metrics.incCounter('runtime.success', 1, { action: action.name });
-        metrics.observe('runtime.latency_ms', Date.now() - startedAt, { action: action.name });
         return {
           ok: true,
           output,
@@ -307,11 +359,17 @@ export class ExecutionRuntime {
         };
       } catch (err) {
         controller.abort();
+        // A timer can win the promise race after execution has already validated
+        // and reported success. This applies even when retries are disabled.
+        const completed = completedResult();
+        if (completed) return completed;
+        captureErrorRecovery(err);
         const norm = context.signal?.aborted
           ? new AgentkitRuntimeError(ErrorCodes.ABORTED, 'Operation aborted by caller', err)
           : normalizeError(err);
+        const interrupted = norm.code === ErrorCodes.ABORTED || norm.code === ErrorCodes.TIMEOUT;
         lastErr = norm;
-        logger.log('warn', 'action run failed', {
+        logger.log('warn', interrupted ? 'action wait interrupted' : 'action run failed', {
           traceId,
           action: action.name,
           attempt,
@@ -320,23 +378,50 @@ export class ExecutionRuntime {
         });
 
         // Non-retryable errors: break immediately
-        if (NON_RETRYABLE_CODES.has(norm.code)) break;
+        if (NON_RETRYABLE_CODES.has(norm.code) || recovery) break;
 
         if (attempt > effectiveMaxRetries) break;
         // Exponential backoff: delay * 2^(attempt-1)
         await new Promise((r) => setTimeout(r, this.config.retryDelayMs * Math.pow(2, attempt - 1)));
+        // Let cooperative cancellation settle during the bounded backoff. The
+        // timeout catch can run before the execution's promise cleanup, so its
+        // synchronous pending flag is not a retry decision. Never overlap an
+        // unfinished attempt or repeat an attempt that completed successfully.
+        const completedAfterBackoff = completedResult();
+        if (completedAfterBackoff) {
+          // The bounded retry wait observed an actual validated success. Its
+          // hook, metric and cache write already ran; return that outcome once.
+          return completedAfterBackoff;
+        }
+        if (executionPending || recovery) break;
+        if (context.signal?.aborted) {
+          lastErr = new AgentkitRuntimeError(ErrorCodes.ABORTED, 'Operation aborted by caller');
+          break;
+        }
       }
     }
 
-    // Release idempotency lock so future retries with same key can proceed
+    // An abort/timeout only stops the caller waiting. Release after actual
+    // settlement; token-aware release leaves a completed cache entry intact.
+    // A failed execution with recovery evidence is NOT a safe-to-retry failure:
+    // retain its reservation under the store's existing TTL contract.
     if (cacheKey && lockToken) {
-      try {
-        await this.config.idempotencyStore!.release(cacheKey, lockToken);
-      } catch (releaseErr) {
-        logger.log('warn', 'failed to release idempotency lock', { traceId, cacheKey, error: String(releaseErr) });
-      }
+      const release = async () => {
+        if (recovery) return;
+        try {
+          await this.config.idempotencyStore!.release(cacheKey, lockToken);
+        } catch (releaseErr) {
+          logger.log('warn', 'failed to release idempotency lock', { traceId, cacheKey, error: String(releaseErr) });
+        }
+      };
+      if (executionSettled) executionSettled = executionSettled.then(release);
+      else await release();
+      if (!executionPending) await executionSettled;
     }
 
+    // Settlement may also have completed during asynchronous lock cleanup.
+    const completed = completedResult();
+    if (completed) return completed;
     const norm = normalizeError(lastErr);
     this.config.hooks?.onActionError?.({
       traceId,
@@ -349,17 +434,30 @@ export class ExecutionRuntime {
     });
     metrics.incCounter('runtime.error', 1, { action: action.name, code: norm.code });
     metrics.observe('runtime.latency_ms', Date.now() - startedAt, { action: action.name });
-    return {
+    const result: ExecutionResult<TOutput> = {
       ok: false,
       errorCode: norm.code,
       error: norm.message,
       traceId,
       action: action.name,
       attempts: attempt,
+      ...(recovery ? { recovery } : {}),
     };
+    if (executionSettled)
+      Object.defineProperty(result, 'settled', {
+        value: executionSettled.then(() => (recovery ? structuredClone(recovery) : undefined)),
+        enumerable: false,
+      });
+    afterInterruption = norm.code === ErrorCodes.ABORTED || norm.code === ErrorCodes.TIMEOUT;
+    return result;
   }
 
-  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, actionName: string, controller: AbortController): Promise<T> {
+  private withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    actionName: string,
+    controller: AbortController,
+  ): Promise<T> {
     // Capture the timer so we can clear it when `promise` wins the race.
     // Without clearTimeout the timer keeps firing after success, calling
     // `controller.abort()` on an already-completed attempt and producing

@@ -14,8 +14,8 @@
 //      available, exit 99 with a clear pointer.
 //
 // The integration tests at tests/integration/cli-gns.test.ts spawn
-// this shim against the source tree without running `pnpm build`
-// first, so the fallback is load-bearing for the test suite.
+// this shim in isolated source-only workspaces, so the fallback is
+// exercised even when the main checkout already contains dist.
 import { resolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';

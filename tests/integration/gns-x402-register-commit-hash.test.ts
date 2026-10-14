@@ -20,10 +20,11 @@
  * payment tuple handed to the controller's on-chain `makeCommitment` is
  * the post-fix shape, not the bug shape.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { createCliWorkspace } from '../fixtures/cli-workspace';
 import { ActionProvider } from '../../providers/action-provider';
 import { PolicyEngine } from '../../core/policy/policy-engine';
 import { ExecutionRuntime } from '../../core/runtime/execution-runtime';
@@ -310,8 +311,17 @@ describe('agentkit-gns x402-register: CLI plan ordering', () => {
   vi.setConfig({ testTimeout: 30_000 });
 
   const exec = promisify(execFile);
-  const REPO_ROOT = resolve(__dirname, '..', '..');
-  const BIN = resolve(REPO_ROOT, 'bin', 'gns.mjs');
+  let workspace: Awaited<ReturnType<typeof createCliWorkspace>>;
+  let REPO_ROOT: string;
+  let BIN: string;
+  beforeAll(async () => {
+    workspace = await createCliWorkspace();
+    REPO_ROOT = workspace.root;
+    BIN = resolve(REPO_ROOT, 'bin', 'gns.mjs');
+  }, 30_000);
+  afterAll(async () => {
+    await workspace?.dispose();
+  });
 
   it('the dry-run plan invokes waitForCommitment between commit and x402.createOrder', async () => {
     // Codex P1: the backend's createRegistrationOrder calls
@@ -323,7 +333,7 @@ describe('agentkit-gns x402-register: CLI plan ordering', () => {
     // Probe the dry-run --json output to assert the plan ordering rather
     // than spinning up a full chain mock.
     const { stdout, stderr } = await exec(
-      'node',
+      process.execPath,
       [
         BIN,
         '--dry-run',
@@ -369,7 +379,7 @@ describe('agentkit-gns x402-register: CLI plan ordering', () => {
       ['--poll-interval', '0'],
     ] as const) {
       const result = await exec(
-        'node',
+        process.execPath,
         [
           BIN,
           '--json',

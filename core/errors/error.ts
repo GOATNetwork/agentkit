@@ -1,8 +1,12 @@
 import { ErrorCodes, type ErrorCode, type AgentkitError } from './error-codes';
+import type { ActionRecovery } from '../schema/action';
 
 export class AgentkitRuntimeError extends Error implements AgentkitError {
   code: ErrorCode;
   cause?: unknown;
+  recovery?: ActionRecovery;
+  /** The message already gives specific recovery instructions; wrappers should preserve them. */
+  recoveryGuidance?: boolean;
 
   constructor(code: ErrorCode, message: string, cause?: unknown) {
     super(message);

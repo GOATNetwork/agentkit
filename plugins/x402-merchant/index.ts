@@ -8,6 +8,7 @@ export { merchantAuthRegisterAction } from './actions/auth.register';
 export { merchantAuthRegisterInviteAction } from './actions/auth.register-invite';
 export { merchantAuthLoginAction } from './actions/auth.login';
 export { merchantAuthRefreshAction } from './actions/auth.refresh';
+export { merchantAuthTotpVerifyAction } from './actions/auth.totp-verify';
 
 // Dashboard
 export { merchantDashboardStatsAction } from './actions/dashboard.stats';

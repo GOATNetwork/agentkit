@@ -1,3 +1,4 @@
+import { transferCheckpoints } from '../../../core/wallet/checkpoints';
 import { z } from 'zod';
 import type { ActionDefinition } from '../../../core/schema/action';
 import type { WalletProvider } from '../../../core/wallet/wallet-provider';
@@ -27,10 +28,18 @@ export function contractWriteAction(wallet: WalletProvider): ActionDefinition<Co
     description: 'Write to a smart contract (state-changing function call)',
     riskLevel: 'high',
     requiresConfirmation: true,
+    retryable: false,
     networks: ['goat-mainnet', 'goat-testnet'],
     zodInputSchema: inputSchema,
     async execute(ctx, input) {
-      return wallet.writeContract(input.contractAddress, input.abi, input.functionName, input.args, undefined, { signal: ctx.signal });
+      return wallet.writeContract(
+        input.contractAddress,
+        input.abi,
+        input.functionName,
+        input.args,
+        undefined,
+        transferCheckpoints(ctx),
+      );
     },
   };
 }

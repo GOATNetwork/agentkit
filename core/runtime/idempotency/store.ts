@@ -15,8 +15,12 @@ export interface CacheHit<T = unknown> {
 export interface IdempotencyStore {
   /** Try to acquire an exclusive lock for key. Returns a token string if acquired, null if already held. */
   acquire(key: string, ttlSeconds?: number): Promise<string | null>;
-  /** Mark key as completed with the given value. */
-  complete<T = unknown>(key: string, value: T, ttlSeconds?: number): Promise<void>;
+  /**
+   * Mark key as completed. With a token, atomically cache if the key is absent,
+   * expired, or still in progress under that token. Preserve any unexpired
+   * different owner or completed value. Runtime calls always supply a token.
+   */
+  complete<T = unknown>(key: string, value: T, ttlSeconds?: number, token?: string): Promise<void>;
   /** Release the lock for key only if the token matches (on execution failure). */
   release(key: string, token: string): Promise<void>;
   /** Get the completed value for key, or null if not found/expired/in-progress. */
@@ -39,7 +43,16 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
     return token;
   }
 
-  async complete<T = unknown>(key: string, value: T, ttlSeconds?: number): Promise<void> {
+  async complete<T = unknown>(key: string, value: T, ttlSeconds?: number, token?: string): Promise<void> {
+    if (token !== undefined) {
+      const existing = this.cache.get(key);
+      if (
+        existing &&
+        Date.now() <= existing.expiresAt &&
+        (existing.status !== 'in_progress' || existing.token !== token)
+      )
+        return;
+    }
     const expiresAt = Date.now() + (ttlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
     this.cache.set(key, { status: 'completed', value, expiresAt });
   }

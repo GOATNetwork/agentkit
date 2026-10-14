@@ -25,10 +25,8 @@ import { resolve, dirname } from 'node:path';
 import { ActionProvider } from '../../providers/action-provider';
 import { PolicyEngine, type PolicyConfig } from '../../core/policy/policy-engine';
 import { ExecutionRuntime } from '../../core/runtime/execution-runtime';
-import {
-  type ExecutionOptions,
-  type ExecutionResult,
-} from '../../core/runtime/execution-runtime';
+import { redactFields } from '../../core/runtime/redaction';
+import { type ExecutionOptions, type ExecutionResult } from '../../core/runtime/execution-runtime';
 import { ErrorCodes, type ErrorCode } from '../../core/errors/error-codes';
 import type { RuntimeLogger } from '../../core/runtime/logger';
 import type { ActionDefinition, ActionContext } from '../../core/schema/action';
@@ -65,14 +63,7 @@ const CHAIN_OR_STATE_MARKERS = [
  *  fetch() throws plain `TypeError('fetch failed')` on network-level failures
  *  (ECONNREFUSED, DNS, unreachable host) — the runtime normalizes these to
  *  INTERNAL_ERROR, but for the operator they're "upstream HTTP didn't reach". */
-const ADAPTER_MARKERS = [
-  'fetch failed',
-  'ECONNREFUSED',
-  'ENOTFOUND',
-  'EHOSTUNREACH',
-  'ETIMEDOUT',
-  'socket hang up',
-];
+const ADAPTER_MARKERS = ['fetch failed', 'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ETIMEDOUT', 'socket hang up'];
 
 export function classifyExitCode(errorCode: ErrorCode | undefined, message: string | undefined): ExitCode {
   if (!errorCode) return ExitCodes.UNKNOWN;
@@ -128,6 +119,7 @@ export function loadEnvFromCwd(): void {
 }
 
 export interface RunCommandOptions {
+  signal?: AbortSignal;
   /** Concrete network context (passed to `ActionContext.network` AND the policy allowlist). */
   network: string;
   /** Additional networks the policy should permit (besides `network`). Useful for cross-chain. */
@@ -191,6 +183,7 @@ export async function runAction<TInput, TOutput>(
   });
 
   const ctx: ActionContext = {
+    signal: opts.signal,
     traceId: `cli_${randomUUID()}`,
     network: opts.network,
     now: Date.now(),
@@ -203,9 +196,7 @@ export async function runAction<TInput, TOutput>(
     opts.executionOptions ?? {},
   )) as ExecutionResult<TOutput>;
 
-  const exitCode = result.ok
-    ? ExitCodes.SUCCESS
-    : classifyExitCode(result.errorCode, result.error);
+  const exitCode = result.ok ? ExitCodes.SUCCESS : classifyExitCode(result.errorCode, result.error);
 
   return {
     result,
@@ -214,39 +205,12 @@ export async function runAction<TInput, TOutput>(
   };
 }
 
-/**
- * Shallow-with-array-hop redactor. Mirrors the runtime's `redactFields`
- * contract (see `core/runtime/execution-runtime.ts`) so the CLI's
- * print path applies the same protections the hook system applies.
- * `revealedFields` is the per-call un-redact list (mirrors
- * `ExecutionOptions.revealedFields`).
- */
-function redactForReport(
-  value: unknown,
-  sensitive: readonly string[],
-  revealed: readonly string[],
-): unknown {
-  if (value == null || typeof value !== 'object' || !sensitive.length) return value;
-  const effective = sensitive.filter((f) => !revealed.includes(f));
-  if (!effective.length) return value;
-  if (Array.isArray(value)) {
-    return value.map((item) => redactForReport(item, effective, []));
-  }
-  const copy = { ...(value as Record<string, unknown>) };
-  for (const f of effective) {
-    if (f in copy) copy[f] = '[REDACTED]';
-  }
-  for (const k of Object.keys(copy)) {
-    const v = copy[k];
-    if (Array.isArray(v)) {
-      copy[k] = v.map((item) =>
-        item && typeof item === 'object' && !Array.isArray(item)
-          ? redactForReport(item, effective, [])
-          : item,
-      );
-    }
-  }
-  return copy;
+/** Apply the runtime's redaction contract, honoring the caller's reveal list. */
+function redactForReport(value: unknown, sensitive: readonly string[], revealed: readonly string[]): unknown {
+  return redactFields(
+    value,
+    sensitive.filter((field) => !revealed.includes(field)),
+  );
 }
 
 export interface ReportResultOptions {
@@ -271,12 +235,7 @@ export interface ReportResultOptions {
 }
 
 function isRunCommandResult(v: unknown): v is RunCommandResult {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    'result' in v &&
-    'sensitiveOutputFields' in v
-  );
+  return typeof v === 'object' && v !== null && 'result' in v && 'sensitiveOutputFields' in v;
 }
 
 /**
@@ -298,11 +257,9 @@ export function reportResult(
 ): void {
   const result = isRunCommandResult(resultOrRun) ? resultOrRun.result : resultOrRun;
   const sensitive =
-    options.sensitiveOutputFields ??
-    (isRunCommandResult(resultOrRun) ? resultOrRun.sensitiveOutputFields : []);
+    options.sensitiveOutputFields ?? (isRunCommandResult(resultOrRun) ? resultOrRun.sensitiveOutputFields : []);
   const revealed = options.revealAll ? [...sensitive] : (options.revealedFields ?? []);
-  const redact = (out: unknown): unknown =>
-    sensitive.length ? redactForReport(out, sensitive, revealed) : out;
+  const redact = (out: unknown): unknown => (sensitive.length ? redactForReport(out, sensitive, revealed) : out);
 
   if (format === 'json') {
     if (result.ok && sensitive.length) {
@@ -325,7 +282,7 @@ export function reportResult(
 
 /** Markers that pivot a thrown Error → exit 1 (USER_INPUT). */
 const USER_INPUT_ERROR_MARKERS = [
-  'invalid --',          // our option-parser throws
+  'invalid --', // our option-parser throws
   'unknown option',
   'unknown command',
   'missing required',

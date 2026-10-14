@@ -5,7 +5,7 @@ import type { MerchantPortalClient } from '../adapters/types';
 const inputSchema = z.object({
   invite_code: z.string().min(1).describe('Invite code issued by merchant owner'),
   email: z.string().email().describe('Email address'),
-  password: z.string().min(6).describe('Account password'),
+  password: z.string().refine((value) => Buffer.byteLength(value, 'utf8') >= 8 && Buffer.byteLength(value, 'utf8') <= 72, 'Password must be 8–72 UTF-8 bytes').describe('Account password'),
 });
 
 export function merchantAuthRegisterInviteAction(

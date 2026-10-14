@@ -7,3 +7,6 @@ export type { MerchantGatewayAdapter, PayerWalletAdapter, CalldataSignRequest, P
 export { HttpMerchantGatewayAdapter } from './adapters/http-merchant-gateway';
 export { EvmPayerWalletAdapter } from './adapters/evm-payer-wallet';
 export { NoopPayerWalletAdapter } from './adapters/noop-payer-wallet';
+export { GoatFlowGatewayAdapter } from './adapters/goat-flow-gateway';
+export type { GoatFlowGatewayOptions, FlowOrderStatus } from './adapters/goat-flow-gateway';
+export { flowCreateOrderAction, flowCreateCheckoutAction, paymentProofAction } from './actions/flow';
